@@ -61,8 +61,15 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ matrix.headers }}" = auto ]; then
+            # The Manjaro base image ships with an uninitialized keyring and
+            # an empty package database; searching for packages before both
+            # are set up fails.
+            pacman-key --init
+            pacman-key --populate archlinux manjaro
+            pacman -Sy --noconfirm
             # Manjaro names its kernel packages linuxNNN; pick the two newest.
             headers="$(pacman -Ssq '^linux[0-9]+-headers$' | sort -Vr | head -2 | tr '\n' ' ')"
+            [ -n "$headers" ] || { echo "No Manjaro linuxNNN-headers packages found" >&2; exit 1; }
             echo "Selected Manjaro headers: $headers"
           else
             headers="${{ matrix.headers }}"
@@ -96,4 +103,4 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          cat /var/lib/dkms/appleibridge/*/build/make.log || true
+          find /var/lib/dkms -name make.log -exec cat {} +
