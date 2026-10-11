@@ -169,6 +169,18 @@ install_audio() {
     cp -r "$vendored" "$AUDIO_SYS_DIR"
     chown -R root:root "$AUDIO_SYS_DIR"
     printf '%s\n' "$fp" > "$AUDIO_REV"
+
+    # davidjo's dkms.sh only creates its /usr/src symlink when it does not
+    # exist. A manual install leaves a link into the user's old clone, and
+    # DKMS would then keep building from there. Replace a stale link/copy.
+    local link="/usr/src/snd_hda_macbookpro-0.1" old
+    if [[ -e $link || -L $link ]] && [[ "$(readlink -f "$link")" != "$AUDIO_SYS_DIR" ]]; then
+        old="$(readlink -f "$link")"
+        warn "Removing stale $link (points at $old)"
+        dkms remove snd_hda_macbookpro/0.1 --all || true
+        rm -rf "$link" # if it is a symlink, only the link itself is removed
+    fi
+
     (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -i)
 }
 
