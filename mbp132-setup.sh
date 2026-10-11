@@ -16,6 +16,9 @@
 #
 # Tested on: MacBookPro13,2, CachyOS, kernel 7.2.9 (GRUB, mkinitcpio, systemd).
 #
+# The script runs from a clone of this repository: it installs the drivers
+# vendored under drivers/ instead of cloning anything at install time.
+#
 # Usage: sudo ./mbp132-setup.sh [options]
 #   --iso            fix swapped keys on ISO (non-US) keyboards (applespi iso_layout=1)
 #   --fn-ctrl-swap   swap Fn and left Ctrl (applespi fnremap=1)
@@ -35,14 +38,16 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------- settings --
-TB_REPO="${TB_REPO:-https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver.git}"
-TB_BRANCH="${TB_BRANCH:-touchbar-driver-hid-driver}"
-AUDIO_REPO="${AUDIO_REPO:-https://github.com/davidjo/snd_hda_macbookpro.git}"
+# The script runs from a clone of this repository; the drivers it installs
+# are vendored under drivers/ (nothing is cloned from the network at install
+# time; see README.md).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DRIVERS_DIR="$SCRIPT_DIR/drivers"
 
 SRC_DIR=/usr/local/src/mbp132-setup
+AUDIO_SYS_DIR="$SRC_DIR/snd_hda_macbookpro"
+AUDIO_REV="$SRC_DIR/snd_hda_macbookpro.rev"
 TB_NAME=appleibridge
-TB_VER=0.1
-TB_DKMS_SRC="/usr/src/${TB_NAME}-${TB_VER}"
 EXPECTED_MODEL="MacBookPro13,2"
 
 F_TB_MODPROBE=/etc/modprobe.d/mbp132-touchbar.conf
@@ -111,8 +116,18 @@ preflight() {
     fi
 }
 
+# Vendored drivers: the script must run from a clone of this repository.
+# This covers someone who downloaded only the script.
+check_vendored_drivers() {
+    local f
+    for f in "$DRIVERS_DIR/apple-ibridge/dkms.conf" \
+             "$DRIVERS_DIR/snd_hda_macbookpro/install.cirrus.driver.sh"; do
+        [[ -f $f ]] || die "Missing $f. Run this script from a clone of the repository (see README.md)."
+    done
+}
+
 install_deps() {
-    local pkgs=(dkms git base-devel wget patch) k
+    local pkgs=(dkms base-devel wget patch) k
     (( DO_WIFI )) && pkgs+=(iw)
     for k in $(installed_kernels); do
         pkgs+=("$(cat "/usr/lib/modules/$k/pkgbase")-headers")
@@ -121,57 +136,64 @@ install_deps() {
     pacman -S --needed --noconfirm "${pkgs[@]}"
 }
 
-git_sync() { # git_sync <url> <dir> [branch]
-    local url=$1 dir=$2 branch=${3:-}
-    if [[ -d "$dir/.git" ]]; then
-        git -C "$dir" pull --ff-only
-    else
-        git clone ${branch:+--branch "$branch"} "$url" "$dir"
-    fi
-}
+# The audio build needs wget (kernel source from cdn.kernel.org) and patch.
 
 # ------------------------------------------------------------------- audio --
+drivers_fingerprint() { # fingerprint of a tree: sha256sum over the sorted file list and contents
+    (cd "$1" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | cut -d' ' -f1
+}
+
 install_audio() {
     log "Audio: CS8409 driver"
-    if dkms status 2>/dev/null | grep -q "^snd_hda_macbookpro.*$(uname -r).*installed"; then
-        log "Audio driver already installed for $(uname -r); skipping."
+    local vendored="$DRIVERS_DIR/snd_hda_macbookpro" fp
+    fp="$(drivers_fingerprint "$vendored")"
+
+    # davidjo's dkms.sh symlinks /usr/src/snd_hda_macbookpro-0.1 to the
+    # directory it runs from, and DKMS rebuilds from there on every kernel
+    # update, so it must run from a stable system copy, never from the
+    # user's clone. Skip only when the copy matches the vendored tree and
+    # the module is installed for the running kernel.
+    if [[ -f "$AUDIO_REV" ]] && [[ "$(cat "$AUDIO_REV")" == "$fp" ]] \
+        && dkms status 2>/dev/null | grep -q "^snd_hda_macbookpro.*$(uname -r).*installed"; then
+        log "Audio driver already installed for $(uname -r) and unchanged; skipping."
         return
     fi
+
+    if [[ -x "$AUDIO_SYS_DIR/install.cirrus.driver.sh" ]]; then
+        (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -r) || true
+    fi
     mkdir -p "$SRC_DIR"
-    git_sync "$AUDIO_REPO" "$SRC_DIR/snd_hda_macbookpro"
-    (cd "$SRC_DIR/snd_hda_macbookpro" && ./install.cirrus.driver.sh -i)
+    rm -rf "$AUDIO_SYS_DIR"
+    cp -a "$vendored" "$AUDIO_SYS_DIR"
+    printf '%s\n' "$fp" > "$AUDIO_REV"
+    (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -i)
 }
 
 # --------------------------------------------------------------- touch bar --
-patch_touchbar_source() {
-    local f="$TB_DKMS_SRC/apple-ib-tb.c" def use
-    # Fix 1: 'struct tb_touch' is used inside 'struct appletb_device' before it
-    # is defined, so the build fails on 6.15+. Move the definition up.
-    def=$(grep -n '^struct tb_touch {' "$f" | cut -d: -f1 || true)
-    use=$(grep -n '^struct appletb_device {' "$f" | cut -d: -f1 || true)
-    if [[ -n "$def" && -n "$use" && "$def" -gt "$use" ]]; then
-        perl -0pi -e 's/struct tb_touch \{\n\tstruct input_dev \*input;\n\tbool mt_inited;\n\};\n//; s/(struct appletb_device \{)/struct tb_touch {\n\tstruct input_dev *input;\n\tbool mt_inited;\n};\n\n$1/' "$f"
-        log "Patched apple-ib-tb.c (struct tb_touch ordering)"
-    fi
+tb_dkms_versions() { # all versions of the Touch Bar module known to DKMS
+    dkms status -m "$TB_NAME" 2>/dev/null | sed -n "s/^${TB_NAME}\/\([^,]*\),.*/\1/p" | sort -u
 }
 
 install_touchbar() {
     log "Touch Bar: iBridge driver"
-    mkdir -p "$SRC_DIR"
-    git_sync "$TB_REPO" "$SRC_DIR/touchbar" "$TB_BRANCH"
+    local vendored="$DRIVERS_DIR/apple-ibridge" ver tb_dkms_src v
+    ver="$(sed -n 's/^PACKAGE_VERSION="\(.*\)"$/\1/p' "$vendored/dkms.conf")"
+    [[ -n "$ver" ]] || die "Cannot read PACKAGE_VERSION from $vendored/dkms.conf"
+    tb_dkms_src="/usr/src/${TB_NAME}-${ver}"
 
-    if dkms status -m "$TB_NAME" -v "$TB_VER" 2>/dev/null | grep -q .; then
-        dkms remove -m "$TB_NAME" -v "$TB_VER" --all || true
-    fi
-    rm -rf "$TB_DKMS_SRC"
-    cp -r "$SRC_DIR/touchbar" "$TB_DKMS_SRC"
-    rm -rf "$TB_DKMS_SRC/.git"
-    patch_touchbar_source
+    # Remove every installed DKMS version and stale /usr/src copies, so that
+    # e.g. version 0.1 from older script versions is replaced cleanly.
+    while IFS= read -r v; do
+        [[ -n "$v" ]] || continue
+        dkms remove -m "$TB_NAME" -v "$v" --all || true
+    done < <(tb_dkms_versions)
+    rm -rf "/usr/src/${TB_NAME}-"*
 
-    dkms add -m "$TB_NAME" -v "$TB_VER"
+    cp -a "$vendored" "$tb_dkms_src"
+    dkms add -m "$TB_NAME" -v "$ver"
     local k
     for k in $(installed_kernels); do
-        dkms install -m "$TB_NAME" -v "$TB_VER" -k "$k" \
+        dkms install -m "$TB_NAME" -v "$ver" -k "$k" \
             || warn "Touch Bar driver failed to build for kernel $k"
     done
 
@@ -367,13 +389,19 @@ uninstall() {
     if [[ -f "$F_KXKB_DEFAULT" ]] && grep -qF "$MARKER" "$F_KXKB_DEFAULT"; then
         rm -f "$F_KXKB_DEFAULT"
     fi
-    if dkms status -m "$TB_NAME" -v "$TB_VER" 2>/dev/null | grep -q .; then
-        dkms remove -m "$TB_NAME" -v "$TB_VER" --all || true
+    # Remove every DKMS version of the Touch Bar driver and its /usr/src
+    # copies (older script versions left version 0.1 around).
+    local v
+    while IFS= read -r v; do
+        [[ -n "$v" ]] || continue
+        dkms remove -m "$TB_NAME" -v "$v" --all || true
+    done < <(tb_dkms_versions)
+    rm -rf "/usr/src/${TB_NAME}-"*
+    if [[ -x "$AUDIO_SYS_DIR/install.cirrus.driver.sh" ]]; then
+        (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -r) || true
     fi
-    rm -rf "$TB_DKMS_SRC"
-    if [[ -x "$SRC_DIR/snd_hda_macbookpro/install.cirrus.driver.sh" ]]; then
-        (cd "$SRC_DIR/snd_hda_macbookpro" && ./install.cirrus.driver.sh -r) || true
-    fi
+    # Also removes the touchbar/ clone and old audio copies that older
+    # versions of this script left in /usr/local/src/mbp132-setup.
     rm -rf "$SRC_DIR"
     rebuild_initramfs
     log "Done. Reboot to finish."
@@ -402,6 +430,7 @@ done
 preflight
 if (( UNINSTALL )); then uninstall; exit 0; fi
 [[ -n "$WIFI_MAC" ]] && validate_wifi_mac
+check_vendored_drivers
 
 install_deps
 (( DO_AUDIO )) && install_audio
