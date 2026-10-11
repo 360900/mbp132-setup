@@ -12,3 +12,10 @@
 ### Changed
 - `mbp132-setup.sh` installs drivers from the vendored tree: the Touch Bar driver is copied to `/usr/src/appleibridge-<version>` and rebuilt through DKMS on every run; the audio driver is copied to `/usr/local/src/mbp132-setup` with a fingerprint file so unchanged installs are skipped. The old clone-based flow was removed.
 - Applied the `struct tb_touch` build fix to the vendored driver as a committed patch and bumped `PACKAGE_VERSION` to `0.1.1` to mark the fork.
+
+### Fixed
+- `tb_dkms_versions()` now also matches DKMS versions in the `added` (not yet built) state, so they are removed together with their stale `/usr/src` copies instead of staying registered.
+- Driver copies under `/usr/src` and `/usr/local/src` are chowned to `root:root` instead of keeping the invoking user's ownership (root builds and runs that code later).
+- A stale `/usr/src/snd_hda_macbookpro-0.1` symlink left by a manual install of davidjo's script is replaced before the audio install, so DKMS builds from the system copy, not the user's old clone.
+- The audio driver is built and installed for every installed kernel, not only the running one.
+- CI: the Manjaro job initializes the pacman keyring and package database before searching for kernel header packages, and on failure prints every DKMS `make.log`.
