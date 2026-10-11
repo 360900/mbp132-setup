@@ -164,7 +164,10 @@ install_audio() {
     fi
     mkdir -p "$SRC_DIR"
     rm -rf "$AUDIO_SYS_DIR"
-    cp -a "$vendored" "$AUDIO_SYS_DIR"
+    # The code here is built and run by root later; keep the invoking
+    # user's ownership off it.
+    cp -r "$vendored" "$AUDIO_SYS_DIR"
+    chown -R root:root "$AUDIO_SYS_DIR"
     printf '%s\n' "$fp" > "$AUDIO_REV"
     (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -i)
 }
@@ -190,7 +193,8 @@ install_touchbar() {
     done < <(tb_dkms_versions)
     rm -rf "/usr/src/${TB_NAME}-"*
 
-    cp -a "$vendored" "$tb_dkms_src"
+    cp -r "$vendored" "$tb_dkms_src"
+    chown -R root:root "$tb_dkms_src"
     dkms add -m "$TB_NAME" -v "$ver"
     local k
     for k in $(installed_kernels); do
