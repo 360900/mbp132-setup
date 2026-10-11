@@ -145,7 +145,7 @@ drivers_fingerprint() { # fingerprint of a tree: sha256sum over the sorted file 
 
 install_audio() {
     log "Audio: CS8409 driver"
-    local vendored="$DRIVERS_DIR/snd_hda_macbookpro" fp
+    local vendored="$DRIVERS_DIR/snd_hda_macbookpro" fp k
     fp="$(drivers_fingerprint "$vendored")"
 
     # davidjo's dkms.sh symlinks /usr/src/snd_hda_macbookpro-0.1 to the
@@ -156,32 +156,40 @@ install_audio() {
     if [[ -f "$AUDIO_REV" ]] && [[ "$(cat "$AUDIO_REV")" == "$fp" ]] \
         && dkms status 2>/dev/null | grep -q "^snd_hda_macbookpro.*$(uname -r).*installed"; then
         log "Audio driver already installed for $(uname -r) and unchanged; skipping."
-        return
+    else
+        if [[ -x "$AUDIO_SYS_DIR/install.cirrus.driver.sh" ]]; then
+            (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -r) || true
+        fi
+        mkdir -p "$SRC_DIR"
+        rm -rf "$AUDIO_SYS_DIR"
+        # The code here is built and run by root later; keep the invoking
+        # user's ownership off it.
+        cp -r "$vendored" "$AUDIO_SYS_DIR"
+        chown -R root:root "$AUDIO_SYS_DIR"
+        printf '%s\n' "$fp" > "$AUDIO_REV"
+
+        # davidjo's dkms.sh only creates its /usr/src symlink when it does not
+        # exist. A manual install leaves a link into the user's old clone, and
+        # DKMS would then keep building from there. Replace a stale link/copy.
+        local link="/usr/src/snd_hda_macbookpro-0.1" old
+        if [[ -e $link || -L $link ]] && [[ "$(readlink -f "$link")" != "$AUDIO_SYS_DIR" ]]; then
+            old="$(readlink -f "$link")"
+            warn "Removing stale $link (points at $old)"
+            dkms remove snd_hda_macbookpro/0.1 --all || true
+            rm -rf "$link" # if it is a symlink, only the link itself is removed
+        fi
+
+        (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -i)
     fi
 
-    if [[ -x "$AUDIO_SYS_DIR/install.cirrus.driver.sh" ]]; then
-        (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -r) || true
-    fi
-    mkdir -p "$SRC_DIR"
-    rm -rf "$AUDIO_SYS_DIR"
-    # The code here is built and run by root later; keep the invoking
-    # user's ownership off it.
-    cp -r "$vendored" "$AUDIO_SYS_DIR"
-    chown -R root:root "$AUDIO_SYS_DIR"
-    printf '%s\n' "$fp" > "$AUDIO_REV"
-
-    # davidjo's dkms.sh only creates its /usr/src symlink when it does not
-    # exist. A manual install leaves a link into the user's old clone, and
-    # DKMS would then keep building from there. Replace a stale link/copy.
-    local link="/usr/src/snd_hda_macbookpro-0.1" old
-    if [[ -e $link || -L $link ]] && [[ "$(readlink -f "$link")" != "$AUDIO_SYS_DIR" ]]; then
-        old="$(readlink -f "$link")"
-        warn "Removing stale $link (points at $old)"
-        dkms remove snd_hda_macbookpro/0.1 --all || true
-        rm -rf "$link" # if it is a symlink, only the link itself is removed
-    fi
-
-    (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -i)
+    # The -i step builds only for the running kernel; make sure the driver
+    # is built and installed for every other installed kernel as well.
+    for k in $(installed_kernels); do
+        if ! dkms status -m snd_hda_macbookpro -k "$k" 2>/dev/null | grep -q "installed"; then
+            dkms install snd_hda_macbookpro/0.1 -k "$k" \
+                || warn "Audio driver failed to build for kernel $k"
+        fi
+    done
 }
 
 # --------------------------------------------------------------- touch bar --
