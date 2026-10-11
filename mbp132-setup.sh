@@ -173,7 +173,9 @@ install_audio() {
         # DKMS would then keep building from there. Replace a stale link/copy.
         local link="/usr/src/snd_hda_macbookpro-0.1" old
         if [[ -e $link || -L $link ]] && [[ "$(readlink -f "$link")" != "$AUDIO_SYS_DIR" ]]; then
-            old="$(readlink -f "$link")"
+            # readlink -f fails if the target's parent is gone; show the
+            # bare target then, or '?' if even that fails.
+            old="$(readlink -f "$link" 2>/dev/null || readlink "$link" 2>/dev/null || echo '?')"
             warn "Removing stale $link (points at $old)"
             dkms remove snd_hda_macbookpro/0.1 --all || true
             rm -rf "$link" # if it is a symlink, only the link itself is removed
