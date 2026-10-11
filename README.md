@@ -26,6 +26,8 @@ sudo ./mbp132-setup.sh            # add --iso for non-US keyboards
 reboot
 ```
 
+Both drivers are vendored in this repository (`drivers/`); the script installs them from the local tree and clones nothing from GitHub. See [Vendored drivers](#vendored-drivers).
+
 Options: `--iso`, `--fn-ctrl-swap`, `--windows-keys`, `--wifi-mac MAC`, `--no-audio`, `--no-touchbar`, `--no-sleep`, `--no-wifi`, `--force`, `--uninstall`. Run `--help` for details.
 
 After every kernel update, run `dkms status` before rebooting: both drivers should show `installed` for the new kernel.
@@ -65,12 +67,28 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /etc/NetworkManager/dispatcher.d/99-mbp132-wifi-powersave
 /etc/NetworkManager/conf.d/mbp132-wifi.conf
 /var/lib/mbp132-setup/nvram-backup/         (only if an NVRAM file had to be moved)
-/usr/src/appleibridge-0.1                   (DKMS source)
-/usr/local/src/mbp132-setup                 (cloned driver repositories)
+/usr/src/appleibridge-0.1.1                   (DKMS source, copied from drivers/apple-ibridge)
+/usr/local/src/mbp132-setup/snd_hda_macbookpro (copied from drivers/snd_hda_macbookpro)
 ```
+
+## Vendored drivers
+
+Both drivers are committed to this repository under `drivers/` (via `git subtree`), pinned to a tested upstream commit. Nothing is cloned or downloaded from GitHub during install.
+
+| Driver | Upstream | Pinned commit | Local changes |
+|---|---|---|---|
+| `apple-ibridge` (Touch Bar, ALS) | [F13-Kr1pt0n/macbook-pro-touchbar-driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver), branch `touchbar-driver-hid-driver` | `ecfadc3` (2025-09-02) | `struct tb_touch` build fix ([`patches/`](patches)), `PACKAGE_VERSION` bumped to `0.1.1` to mark the fork |
+| `snd_hda_macbookpro` (Cirrus CS8409 audio) | [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro), `master` | `89b22ff` (2026-09-06) | none |
+
+Both are GPL-2.0 upstream; their `LICENSE` files are kept in `drivers/*/`.
+
+One network dependency remains: building the audio driver for a **new** kernel downloads the matching kernel source from `cdn.kernel.org`, because Arch-based distributions ship no kernel-source package. The script installs `wget` and `patch` for this. The vendored Touch Bar driver builds fully offline.
+
+Pins, local changes and the update procedure are documented in [`drivers/README.md`](drivers/README.md). The reasoning behind every fix is in [`NOTES.md`](NOTES.md); how to verify a machine after installing is in [`TESTING.md`](TESTING.md).
 
 ## Credits
 
-- Touch Bar / iBridge driver: cb22, roadrunner2, marc-git, F13-Kr1pt0n
-- Audio driver: davidjo
+- Touch Bar / iBridge driver: cb22, roadrunner2, marc-git, F13-Kr1pt0n (GPL-2.0)
+- Audio driver: davidjo (GPL-2.0)
 - Background: [Dunedan/mbp-2016-linux](https://github.com/Dunedan/mbp-2016-linux), [issue #207](https://github.com/Dunedan/mbp-2016-linux/issues/207)
+- This repository is GPL-3.0; see [LICENSE](LICENSE).
