@@ -91,4 +91,4 @@ Pins, local changes and the update procedure are documented in [`drivers/README.
 - Touch Bar / iBridge driver: cb22, roadrunner2, marc-git, F13-Kr1pt0n (GPL-2.0)
 - Audio driver: davidjo (GPL-2.0)
 - Background: [Dunedan/mbp-2016-linux](https://github.com/Dunedan/mbp-2016-linux), [issue #207](https://github.com/Dunedan/mbp-2016-linux/issues/207)
-- This repository is GPL-3.0; see [LICENSE](LICENSE).
+- The setup script and documentation are GPL-3.0; see [LICENSE](LICENSE). The vendored drivers under `drivers/` keep their own GPL-2.0 licenses.
