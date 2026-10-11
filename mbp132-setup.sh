@@ -171,7 +171,8 @@ install_audio() {
 
 # --------------------------------------------------------------- touch bar --
 tb_dkms_versions() { # all versions of the Touch Bar module known to DKMS
-    dkms status -m "$TB_NAME" 2>/dev/null | sed -n "s/^${TB_NAME}\/\([^,]*\),.*/\1/p" | sort -u
+    # Match "name/version, kernel: state" and "name/version: added".
+    dkms status -m "$TB_NAME" 2>/dev/null | sed -n "s/^${TB_NAME}\/\([^,:]*\)[,:].*/\1/p" | sort -u
 }
 
 install_touchbar() {
