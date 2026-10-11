@@ -1,0 +1,99 @@
+# CI for a self-contained driver setup:
+# - lint the installer script and the diagnostics tool
+# - build the vendored Touch Bar driver through DKMS against the kernel
+#   packages of the distributions it must support
+#
+# There is deliberately no audio-driver build job: snd_hda_macbookpro's
+# DKMS PRE_BUILD downloads the matching full kernel source from
+# cdn.kernel.org for every kernel it builds (~150 MB per kernel), which
+# makes it slow and flaky in CI. That driver carries no local changes;
+# its build is verified on hardware as part of TESTING.md.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1" # weekly: catch kernel-package breakage early
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: shellcheck
+        run: shellcheck -S warning mbp132-setup.sh
+      - name: bash -n
+        run: bash -n mbp132-setup.sh
+      - name: Python syntax check
+        run: python3 -m py_compile tools/*.py
+
+  build-touchbar:
+    name: DKMS build on ${{ matrix.distro }}
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ !matrix.ci_required }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: archlinux
+            image: archlinux:latest
+            headers: "linux-headers linux-lts-headers linux-zen-headers linux-hardened-headers"
+            ci_required: true
+          - distro: cachyos
+            image: cachyos/cachyos:latest
+            headers: "linux-cachyos-headers linux-cachyos-lts-headers"
+            ci_required: true
+          - distro: manjaro
+            image: manjarolinux/base:latest
+            headers: auto # two newest linuxNNN-headers
+            ci_required: false
+    container:
+      image: ${{ matrix.image }}
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools and kernel headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.headers }}" = auto ]; then
+            # Manjaro names its kernel packages linuxNNN; pick the two newest.
+            headers="$(pacman -Ssq '^linux[0-9]+-headers$' | sort -Vr | head -2 | tr '\n' ' ')"
+            echo "Selected Manjaro headers: $headers"
+          else
+            headers="${{ matrix.headers }}"
+          fi
+          pacman -Syu --noconfirm base-devel dkms clang llvm lld $headers
+      - name: Install vendored driver into DKMS tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Same source the installer copies on a real machine.
+          ver="$(sed -n 's/^PACKAGE_VERSION="\(.*\)"$/\1/p' drivers/apple-ibridge/dkms.conf)"
+          cp -a drivers/apple-ibridge "/usr/src/appleibridge-${ver}"
+          dkms add -m appleibridge -v "${ver}"
+          echo "ver=${ver}" >> "$GITHUB_ENV"
+      - name: Build against every installed kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          built=0
+          for bdir in /usr/lib/modules/*/build; do
+            [ -e "$bdir" ] || continue
+            k="$(basename "$(dirname "$bdir")")"
+            case "$k" in extramodules*) continue ;; esac
+            echo "::group::dkms build -k ${k}"
+            dkms build -m appleibridge -v "${ver}" -k "${k}"
+            echo "::endgroup::"
+            built=$((built + 1))
+          done
+          [ "$built" -gt 0 ] || { echo "No kernel build directories found" >&2; exit 1; }
+      - name: Print make.log on failure
+        if: failure()
+        shell: bash
+        run: |
+          cat /var/lib/dkms/appleibridge/*/build/make.log || true
