@@ -9,7 +9,7 @@ One script to make Linux usable on the **MacBook Pro 13" 2016 with Touch Bar (Ma
 | Ambient light sensor | ✅ (apple-ib-als) |
 | Suspend (lid close / idle / manual) | ✅ deep sleep, no instant wake-ups |
 | Hibernation | ❌ hidden; I could not get it to work (though I didn't work on it too much since I got suspend to work |
-| Wi-Fi (BCM43602) | ❌ there's no working linux driver, at least for me; use a USB adapter (e.g. MediaTek MT7921AU) |
+| Wi-Fi (BCM43602) | ❌ there's no working linux driver. I'm working on one |
 | Touch ID | ❌ I didn't work on it |
 
 Tested on CachyOS, kernel 7.2.9, GRUB + mkinitcpio + systemd.
