@@ -199,7 +199,7 @@ install_audio() {
     # user's clone. Skip only when the copy matches the vendored tree and
     # the module is installed for the running kernel.
     if [[ -f "$AUDIO_REV" ]] && [[ "$(cat "$AUDIO_REV")" == "$fp" ]] \
-        && dkms status 2>/dev/null | grep -q "^snd_hda_macbookpro.*$(uname -r).*installed"; then
+        && grep -q "^snd_hda_macbookpro.*$(uname -r).*installed" <<< "$(dkms status 2>/dev/null)"; then
         log "Audio driver already installed for $(uname -r) and unchanged; skipping."
     else
         if [[ -x "$AUDIO_SYS_DIR/install.cirrus.driver.sh" ]]; then
@@ -232,7 +232,7 @@ install_audio() {
     # The -i step builds only for the running kernel; make sure the driver
     # is built and installed for every other installed kernel as well.
     for k in $(installed_kernels); do
-        if ! dkms status -m snd_hda_macbookpro -k "$k" 2>/dev/null | grep -q "installed"; then
+        if ! grep -q "installed" <<< "$(dkms status -m snd_hda_macbookpro -k "$k" 2>/dev/null)"; then
             dkms install snd_hda_macbookpro/0.1 -k "$k" \
                 || warn "Audio driver failed to build for kernel $k"
         fi
@@ -627,7 +627,9 @@ uninstall() {
     rm -rf "/usr/src/${TB_NAME}-"*
     # davidjo's remove step runs a plain "dkms remove", which only covers the
     # running kernel; remove the audio driver from every kernel first.
-    if dkms status -m snd_hda_macbookpro 2>/dev/null | grep -q .; then
+    # (No "dkms status | grep -q" pipes in this script: with pipefail, grep -q
+    # exiting early kills dkms with SIGPIPE and the test fails.)
+    if [[ -n "$(dkms status -m snd_hda_macbookpro 2>/dev/null)" ]]; then
         dkms remove snd_hda_macbookpro/0.1 --all || true
     fi
     if [[ -x "$AUDIO_SYS_DIR/install.cirrus.driver.sh" ]]; then
