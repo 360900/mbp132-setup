@@ -28,7 +28,9 @@ reboot
 
 Both drivers are vendored in this repository (`drivers/`); the script installs them from the local tree and clones nothing from GitHub. See [Vendored drivers](#vendored-drivers).
 
-Options: `--iso`, `--fn-ctrl-swap`, `--windows-keys`, `--wifi-mac MAC`, `--no-audio`, `--no-touchbar`, `--no-sleep`, `--no-wifi`, `--force`, `--uninstall`. Run `--help` for details.
+Options: `--iso`, `--fn-ctrl-swap`, `--windows-keys`, `--wifi-mac MAC`, `--no-audio`, `--no-touchbar`, `--no-sleep`, `--no-wifi`, `--force`, `--uninstall`, `--report`. Run `--help` for details.
+
+Other 2016-2017 MacBook Pros are untested. To help, run `sudo ./mbp132-setup.sh --report` (works on any model, changes nothing) and open a [test report](https://github.com/360900/mbp132-setup/issues/new?template=test-report.yml).
 
 After every kernel update, run `dkms status` before rebooting: both drivers should show `installed` for the new kernel.
 

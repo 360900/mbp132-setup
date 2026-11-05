@@ -1,0 +1,92 @@
+name: Test report
+description: Results from running the script on a MacBook Pro.
+labels: ["test-report"]
+body:
+  - type: dropdown
+    id: model
+    attributes:
+      label: Model
+      description: "`cat /sys/class/dmi/id/product_name`"
+      options:
+        - MacBookPro13,1 (13", 2016, no Touch Bar)
+        - MacBookPro13,2 (13", 2016, Touch Bar)
+        - MacBookPro13,3 (15", 2016)
+        - MacBookPro14,1 (13", 2017, no Touch Bar)
+        - MacBookPro14,2 (13", 2017, Touch Bar)
+        - MacBookPro14,3 (15", 2017)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Distribution, kernel, bootloader
+      placeholder: CachyOS, 7.2.9, GRUB
+    validations:
+      required: true
+  - type: input
+    id: options
+    attributes:
+      label: Script options used
+      placeholder: --iso --force
+  - type: dropdown
+    id: audio
+    attributes:
+      label: Audio (speakers, mic, headphones)
+      options: [Works, Partly, Broken, Not tested]
+    validations:
+      required: true
+  - type: dropdown
+    id: touchbar
+    attributes:
+      label: Touch Bar
+      options: [Works, Partly, Broken, No Touch Bar, Not tested]
+    validations:
+      required: true
+  - type: dropdown
+    id: suspend
+    attributes:
+      label: Suspend and wake
+      options: [Works, Partly, Broken, Not tested]
+    validations:
+      required: true
+  - type: dropdown
+    id: usbc
+    attributes:
+      label: USB-C ports after wake
+      options: [Works, Partly, Broken, Not tested]
+    validations:
+      required: true
+  - type: dropdown
+    id: wifi24
+    attributes:
+      label: Wi-Fi 2.4 GHz
+      options: [Works, Partly, Broken, Not tested]
+    validations:
+      required: true
+  - type: dropdown
+    id: wifi5
+    attributes:
+      label: Wi-Fi 5 GHz
+      options: [Works, Partly, Broken, Not tested]
+    validations:
+      required: true
+  - type: dropdown
+    id: keyboard
+    attributes:
+      label: Keyboard and trackpad
+      options: [Works, Partly, Broken, Not tested]
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: What is partly working or broken, and how to reproduce it.
+  - type: textarea
+    id: report
+    attributes:
+      label: Report
+      description: "Output of `sudo ./mbp132-setup.sh --report`. Paste the file contents or attach the file."
+    validations:
+      required: true

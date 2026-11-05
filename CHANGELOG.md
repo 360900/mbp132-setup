@@ -7,6 +7,8 @@
 ### Added
 - Vendored `apple-ibridge` (F13-Kr1pt0n, branch `touchbar-driver-hid-driver`, pinned `ecfadc3`, 2025-09-02) and `snd_hda_macbookpro` (davidjo, `master`, pinned `89b22ff`, 2026-09-06) under `drivers/`; installs no longer clone from GitHub.
 - CI: lint (shellcheck, `bash -n`, Python compile check) and DKMS builds of the vendored Touch Bar driver against Arch, CachyOS and Manjaro kernel packages.
+- `--report`: writes a hardware and driver report for bug reports on any model, with MAC addresses, serial numbers, hostname and user name masked.
+- Issue template for test reports.
 - Hardware notes (`NOTES.md`), test checklist (`TESTING.md`), per-driver documentation (`drivers/README.md`) and the `bcmprobe.py` diagnostics tool.
 
 ### Changed

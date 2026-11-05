@@ -33,6 +33,8 @@
 #                    instead of a stable per-network address
 #   --force          run on a model other than MacBookPro13,2 (untested!)
 #   --uninstall      remove everything this script installed
+#   --report         write a hardware/driver report for bug reports (any
+#                    model, changes nothing; run with sudo for kernel logs)
 #   -h, --help       show this help
 
 set -euo pipefail
@@ -64,7 +66,7 @@ WIFI_BACKUP=/var/lib/mbp132-setup/nvram-backup
 XKB_OPTIONS="altwin:swap_lalt_lwin,lv3:rwin_switch"
 MARKER="# Installed by mbp132-setup.sh"
 
-DO_AUDIO=1 DO_TB=1 DO_SLEEP=1 DO_WIFI=1 OPT_ISO=0 OPT_FNSWAP=0 OPT_WINKEYS=0 FORCE=0 UNINSTALL=0
+DO_AUDIO=1 DO_TB=1 DO_SLEEP=1 DO_WIFI=1 OPT_ISO=0 OPT_FNSWAP=0 OPT_WINKEYS=0 FORCE=0 UNINSTALL=0 REPORT=0
 WIFI_MAC=""
 
 # ----------------------------------------------------------------- helpers --
@@ -111,7 +113,7 @@ preflight() {
         if (( FORCE )); then
             warn "Model is '$model', not $EXPECTED_MODEL. Continuing because of --force."
         else
-            die "Model is '$model', not $EXPECTED_MODEL. Use --force to run anyway (untested)."
+            die "Model is '$model', not $EXPECTED_MODEL. Use --force to run anyway (untested), or --report to send hardware info."
         fi
     fi
 }
@@ -400,6 +402,97 @@ EOF
     command -v nmcli >/dev/null && nmcli general reload conf >/dev/null 2>&1 || true
 }
 
+# ------------------------------------------------------------------ report --
+# Hardware and driver state for bug reports, on any model. Read-only; root
+# adds the kernel log. MAC addresses (except the vendor part), USB serial
+# numbers, the hostname and the user name are masked before writing.
+REPORT_PATTERN='apple|ibridge|applespi|brcm|cs8409|snd_hda|thunderbolt|xhci|nvme|i915|amdgpu|radeon|acpi.*(error|bug)|pm: |suspend|resume'
+
+report_section() { # report_section <title> <command...>
+    printf '\n## %s\n' "$1"
+    shift
+    if command -v "$1" >/dev/null; then
+        "$@" 2>&1 || true
+    else
+        echo "($1 not installed)"
+    fi
+}
+
+report_redact() {
+    local host user
+    host=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo)
+    user=${SUDO_USER:-${USER:-}}
+    sed -E \
+        -e 's/(([0-9a-fA-F]{2}:){2}[0-9a-fA-F]{2}):([0-9a-fA-F]{2}:){2}[0-9a-fA-F]{2}/\1:xx:xx:xx/g' \
+        -e 's/(SerialNumber|serial)([:=] *)[^ ]+/\1\2<masked>/Ig' \
+        ${host:+-e "s/\\b${host}\\b/<host>/g"} \
+        ${user:+-e "s/\\b${user}\\b/<user>/g"}
+}
+
+report_body() {
+    local f
+    echo "# mbp132-setup report"
+    echo "script: $(git -C "$SCRIPT_DIR" describe --always --dirty 2>/dev/null || echo unknown)"
+    echo "date:   $(date -u +%F)"
+    echo "root:   $([[ $EUID -eq 0 ]] && echo yes || echo 'no (kernel log missing)')"
+
+    printf '\n## Machine\n'
+    for f in sys_vendor product_name product_version board_name bios_version bios_date; do
+        printf '%-16s %s\n' "$f" "$(cat "/sys/class/dmi/id/$f" 2>/dev/null || echo -)"
+    done
+    printf '%-16s %s\n' kernel "$(uname -r)" \
+        distro "$(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}")" \
+        cmdline "$(cat /proc/cmdline)"
+
+    report_section "PCI devices" lspci -nnk
+    report_section "USB devices" lsusb
+    report_section "DKMS" dkms status
+    printf '\n## Relevant modules\n'
+    grep -E '^(apple|applespi|brcm|snd_hda|thunderbolt|hid_sensor|industrialio|amdgpu|radeon|i915)' /proc/modules | cut -d' ' -f1 || true
+
+    printf '\n## Sleep\n'
+    echo "state:     $(cat /sys/power/state 2>/dev/null)"
+    echo "mem_sleep: $(cat /sys/power/mem_sleep 2>/dev/null)"
+    printf '\n## ACPI wake sources\n'
+    cat /proc/acpi/wakeup 2>/dev/null || true
+
+    printf '\n## Audio\n'
+    cat /proc/asound/cards 2>/dev/null || echo "(no sound cards)"
+    for f in /proc/asound/card*/codec#*; do
+        [[ -e $f ]] && echo "$f: $(head -n1 "$f")"
+    done
+
+    printf '\n## Wi-Fi\n'
+    ls -l "$FW_BRCM_DIR"/brcmfmac43602* "$FW_BRCM_DIR"/brcmfmac4350* 2>/dev/null || echo "(no matching firmware files)"
+    ls -l "$WIFI_BACKUP" 2>/dev/null || true
+    report_section "iw dev" iw dev
+    report_section "iw reg get" iw reg get
+
+    printf '\n## Files installed by this script\n'
+    for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" "$F_SLEEPCONF" \
+             "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"; do
+        [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
+    done
+
+    printf '\n## Kernel log (filtered, last 300 lines)\n'
+    if [[ $EUID -eq 0 ]]; then
+        dmesg 2>/dev/null | grep -iE "$REPORT_PATTERN" | tail -n 300 || true
+        printf '\n## Previous boot kernel log (filtered, last 150 lines)\n'
+        journalctl -k -b -1 --no-pager -q 2>/dev/null | grep -iE "$REPORT_PATTERN" | tail -n 150 || echo "(not available)"
+    else
+        echo "(run with sudo to include it)"
+    fi
+}
+
+report() {
+    local out
+    out="$PWD/mbp132-report-$(date +%Y%m%d-%H%M%S).txt"
+    report_body | report_redact > "$out"
+    [[ -n "${SUDO_USER:-}" ]] && { chown "$SUDO_USER": "$out" 2>/dev/null || true; }
+    log "Wrote $out"
+    echo "Check it, then attach it to an issue: https://github.com/360900/mbp132-setup/issues/new/choose"
+}
+
 # --------------------------------------------------------------- uninstall --
 uninstall() {
     log "Removing everything installed by this script"
@@ -448,12 +541,14 @@ while (( $# )); do
         --wifi-mac=*)   WIFI_MAC=${1#*=} ;;
         --force)        FORCE=1 ;;
         --uninstall)    UNINSTALL=1 ;;
+        --report)       REPORT=1 ;;
         -h|--help)      usage ;;
         *)              die "Unknown option: $1 (see --help)" ;;
     esac
     shift
 done
 
+if (( REPORT )); then report; exit 0; fi
 preflight
 if (( UNINSTALL )); then uninstall; exit 0; fi
 [[ -n "$WIFI_MAC" ]] && validate_wifi_mac
@@ -481,4 +576,5 @@ Tips:
   - Double or missed keystrokes: KDE System Settings > Accessibility >
     Keyboard Filters > Bounce keys (~40 ms).
   - Wi-Fi: 2.4 GHz only. For 5 GHz use a USB adapter (e.g. MediaTek MT7921AU).
+  - Something broken? Run  sudo ./mbp132-setup.sh --report  and attach the file to an issue.
 EOF
