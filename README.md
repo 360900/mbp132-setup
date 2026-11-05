@@ -8,7 +8,7 @@ One script to make Linux usable on the **MacBook Pro 13" 2016 with Touch Bar (Ma
 | Volume | ✅ even loudness steps, audible from 5% |
 | Touch Bar (Esc, media keys, F1–F12 with Fn) | ✅ via a patched [iBridge driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver) |
 | Ambient light sensor | ✅ (apple-ib-als) |
-| Suspend (lid close / idle / manual) | ✅ deep sleep, no instant wake-ups |
+| Suspend (lid close / idle / manual) | ✅ s2idle on the 13,2 (deep sleep breaks Wi-Fi), deep on other models |
 | USB-C ports after sleep | ✅ Thunderbolt driver is reloaded around sleep |
 | Windows-style modifiers + AltGr (KDE) | ✅ optional, `--windows-keys` |
 | Hibernation | ❌ hidden; it does not resume on this model |
@@ -51,7 +51,8 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 
 **Suspend**
 - The Apple S3X NVMe and the Thunderbolt xHCI controllers fail to resume from `d3cold`, so d3cold is disabled for all PCI devices before each sleep.
-- Instant wake-ups come from ACPI wake sources: the lid sensor `LID0`, the USB controllers `XHC*`, Wi-Fi `ARPT`, and the PCIe root ports `RP*` (`RP01/05/09/12` on the 13,2; the names differ per model). These are disabled before each sleep; keyboard/trackpad wake (`SPIT`) stays on. Because the lid sensor can't wake it, open the lid and **press a key** to wake.
+- On the 13,2, deep sleep (S3) on battery leaves Wi-Fi rejecting every join until reboot, and deep sleep on the charger often ends within a second. The script sets `MemorySleepMode=s2idle` there. See [`NOTES.md`](NOTES.md#wi-fi-after-sleep).
+- Instant wake-ups come from ACPI wake sources: the lid sensor `LID0`, the USB controllers `XHC*`, Wi-Fi `ARPT`, and the PCIe root ports `RP*` (`RP01/05/09/12` on the 13,2; the names differ per model). These are disabled before each sleep; keyboard/trackpad wake (`SPIT`) stays on. Opening the lid still wakes the 13,2; if it does not, press a key.
 - The Thunderbolt driver's suspend/resume fails, and the USB-C ports' USB controllers vanish until reboot. The sleep hook unloads `thunderbolt` before sleep and loads it again after waking.
 
 **Wi-Fi (BCM43602, board 0x157)**
@@ -75,6 +76,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /etc/udev/rules.d/99-mbp132-sleep.rules
 /usr/lib/systemd/system-sleep/mbp132-sleep-fix
 /etc/systemd/sleep.conf.d/mbp132-no-hibernate.conf
+/etc/systemd/sleep.conf.d/mbp132-s2idle.conf (13,2 only)
 /etc/xdg/kxkbrc                             (only with --windows-keys, if not already present)
 /etc/NetworkManager/dispatcher.d/99-mbp132-wifi-powersave
 /etc/NetworkManager/conf.d/mbp132-wifi.conf

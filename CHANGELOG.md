@@ -18,6 +18,7 @@
 - Hardware notes (`NOTES.md`), test checklist (`TESTING.md`), per-driver documentation (`drivers/README.md`) and the `bcmprobe.py` diagnostics tool.
 
 ### Changed
+- The MacBookPro13,2 sleeps in s2idle (`MemorySleepMode=s2idle`). Deep sleep on battery broke Wi-Fi until reboot in 6 of 6 sleeps. With s2idle, 2 of 2 battery sleeps kept it, on 5 GHz with no rejected joins (2026-11-05). Charger, 2.4 GHz, USB-C after waking, long sleeps and battery drain are not tested yet. Other models stay on deep.
 - `mbp132-setup.sh` installs drivers from the vendored tree: the Touch Bar driver is copied to `/usr/src/appleibridge-<version>` and rebuilt through DKMS on every run; the audio driver is copied to `/usr/local/src/mbp132-setup` with a fingerprint file so unchanged installs are skipped. The old clone-based flow was removed.
 - The sleep hook disables wake sources by kind (`LID*`, `XHC*`, `ARPT`, `RP*`) instead of a fixed 13,2 list.
 - Applied the `struct tb_touch` build fix to the vendored driver as a committed patch and bumped `PACKAGE_VERSION` to `0.1.1` to mark the fork.
