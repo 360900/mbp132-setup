@@ -69,7 +69,7 @@ The shipped file is a MacBookPro14,3's calibration, not this board's. Routes to 
 - Fix the SROM decoder for the 0x9999 / rev-12 layout (the dump itself is valid, CRC OK, real MAC found).
 - Record the NVRAM that the Windows driver writes to the chip, using a Windows VM with the card passed through over VFIO and a QEMU MMIO-write trace (the "sonals" method).
 
-Never commit Apple or Broadcom files, or data extracted from them, to this repository.
+Do not commit Apple or Broadcom files, or data extracted from them, to this repository. One exception: `firmware/brcmfmac43602-pcie.txt.in`, a calibration posted publicly on kernel bugzilla 193121, because 5 GHz does not work without it. Its license is unknown; see `firmware/README.md`.
 
 ## Wi-Fi after sleep
 

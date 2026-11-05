@@ -14,6 +14,8 @@ The script fills in three values:
   normal radar channels. `X3/245`, the value in the chip's own SROM, is not in the
   Linux firmware's table, so the firmware would fall back.
 
+License: unknown. If you hold rights to this data and want it removed, open an issue.
+
 Origin: attachment 290569 on kernel bugzilla 193121 (calibration captured from a
 MacBookPro14,3 by Andy Holst), with the `swctrlmap_2g` fix from comment 97. It is
 not this board's own calibration; decoding the chip's SROM (signature 0x9999,
