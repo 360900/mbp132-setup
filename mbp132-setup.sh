@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # mbp132-setup.sh: one-shot Linux setup for the MacBook Pro 13" 2016 with Touch Bar
-# (model identifier MacBookPro13,2) on Arch-based distributions.
+# (model identifier MacBookPro13,2) on Arch-based distributions. The other
+# 2016-2017 MacBook Pros (13,1 13,3 14,1 14,2 14,3) are supported but untested;
+# the Touch Bar and Wi-Fi parts are installed only where that hardware exists.
 #
 # What it sets up:
 #   - Audio:      Cirrus CS8409 driver (davidjo/snd_hda_macbookpro), via DKMS
@@ -31,7 +33,7 @@
 #   --no-wifi        skip the Wi-Fi settings
 #   --wifi-mac MAC   use this Wi-Fi MAC address (e.g. the one macOS shows)
 #                    instead of a stable per-network address
-#   --force          run on a model other than MacBookPro13,2 (untested!)
+#   --force          run on a model that is not a 2016-2017 MacBook Pro
 #   --uninstall      remove everything this script installed
 #   --report         write a hardware/driver report for bug reports (any
 #                    model, changes nothing; run with sudo for kernel logs)
@@ -50,10 +52,18 @@ SRC_DIR=/usr/local/src/mbp132-setup
 AUDIO_SYS_DIR="$SRC_DIR/snd_hda_macbookpro"
 AUDIO_REV="$SRC_DIR/snd_hda_macbookpro.rev"
 TB_NAME=appleibridge
-EXPECTED_MODEL="MacBookPro13,2"
+
+# Support status per model. What gets installed depends on the hardware found
+# (Touch Bar, Wi-Fi chip), not on this table.
+declare -A MODEL_STATUS=(
+    [MacBookPro13,1]=untested [MacBookPro13,2]=tested [MacBookPro13,3]=untested
+    [MacBookPro14,1]=untested [MacBookPro14,2]=untested [MacBookPro14,3]=untested
+)
 
 F_TB_MODPROBE=/etc/modprobe.d/mbp132-touchbar.conf
 F_TB_LOAD=/etc/modules-load.d/mbp132-touchbar.conf
+F_IBRIDGE_UDEV=/etc/udev/rules.d/40-mbp132-ibridge.rules
+T1_BACKUP=/var/lib/mbp132-setup/t1-firmware
 F_KBD_MODPROBE=/etc/modprobe.d/mbp132-applespi.conf
 F_UDEV=/etc/udev/rules.d/99-mbp132-sleep.rules
 F_HOOK=/usr/lib/systemd/system-sleep/mbp132-sleep-fix
@@ -68,6 +78,7 @@ MARKER="# Installed by mbp132-setup.sh"
 
 DO_AUDIO=1 DO_TB=1 DO_SLEEP=1 DO_WIFI=1 OPT_ISO=0 OPT_FNSWAP=0 OPT_WINKEYS=0 FORCE=0 UNINSTALL=0 REPORT=0
 WIFI_MAC=""
+HAS_T1=0 T1_RECOVERY=0 HAS_BCM43602=0
 
 # ----------------------------------------------------------------- helpers --
 c_ok=$'\e[32m' c_warn=$'\e[33m' c_err=$'\e[31m' c_off=$'\e[0m'
@@ -109,13 +120,41 @@ preflight() {
 
     local model
     model="$(cat /sys/class/dmi/id/product_name 2>/dev/null || echo unknown)"
-    if [[ "$model" != "$EXPECTED_MODEL" ]]; then
-        if (( FORCE )); then
-            warn "Model is '$model', not $EXPECTED_MODEL. Continuing because of --force."
-        else
-            die "Model is '$model', not $EXPECTED_MODEL. Use --force to run anyway (untested), or --report to send hardware info."
-        fi
+    case "${MODEL_STATUS[$model]:-}" in
+        tested)   ;;
+        untested) warn "$model is supported but untested. Please run --report afterwards and open a test report." ;;
+        *)        (( FORCE )) || die "Model '$model' is not supported. Use --force to run anyway, or --report to send hardware info."
+                  warn "Model '$model' is not supported. Continuing because of --force." ;;
+    esac
+}
+
+# ---------------------------------------------------------------- hardware --
+has_usb() { # has_usb <vendor> <product>
+    local d
+    for d in /sys/bus/usb/devices/*; do
+        [[ "$(cat "$d/idVendor" 2>/dev/null)" == "$1" && "$(cat "$d/idProduct" 2>/dev/null)" == "$2" ]] && return 0
+    done
+    return 1
+}
+
+has_pci() { # has_pci <vendor> <device>
+    local d
+    for d in /sys/bus/pci/devices/*; do
+        [[ "$(cat "$d/vendor")" == "0x$1" && "$(cat "$d/device")" == "0x$2" ]] && return 0
+    done
+    return 1
+}
+
+# Touch Bar models have the T1 chip, which shows up as the iBridge USB device
+# (05ac:8600), or as 05ac:1281 in recovery mode when its firmware is missing.
+detect_hardware() {
+    if has_usb 05ac 8600; then
+        HAS_T1=1
+    elif has_usb 05ac 1281; then
+        HAS_T1=1 T1_RECOVERY=1
     fi
+    has_pci 14e4 43ba && HAS_BCM43602=1
+    return 0
 }
 
 # Vendored drivers: the script must run from a clone of this repository.
@@ -244,6 +283,56 @@ apple-ibridge
 apple-ib-tb
 apple-ib-als
 EOF
+
+    # Fix 4: usbmuxd up to 1.1.1 (39-usbmuxd.rules) puts the iBridge into USB
+    # configuration 0, which turns off the Touch Bar, camera and light sensor.
+    # Fixed upstream in 2023 (61b99ab) but not released; set it back to 1.
+    write_file "$F_IBRIDGE_UDEV" 644 <<'EOF'
+# Installed by mbp132-setup.sh
+# usbmuxd <= 1.1.1 unconfigures the iBridge (T1); put it back in configuration 1
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{PRODUCT}=="5ac/8600/*", ACTION=="add", ATTR{bConfigurationValue}!="1", ATTR{bConfigurationValue}="1"
+EOF
+    udevadm control --reload || true
+}
+
+# The T1 has no firmware in ROM: at every power-on the Mac's boot firmware
+# loads it from EFI/APPLE/EMBEDDEDOS/ on the EFI partition. Without it the
+# Touch Bar, camera, Touch ID and light sensor are gone (the T1 shows up as
+# 05ac:1281, recovery mode), and only reinstalling macOS writes it again.
+find_t1_firmware() {
+    local esp
+    for esp in /efi /boot /boot/efi "$(bootctl --print-esp-path 2>/dev/null)"; do
+        [[ -n "$esp" && -d "$esp/EFI/APPLE/EMBEDDEDOS" ]] && { echo "$esp/EFI/APPLE/EMBEDDEDOS"; return 0; }
+    done
+    return 1
+}
+
+check_t1() {
+    local src hint="reinstall macOS, or copy the folder back from a backup"
+    if (( T1_RECOVERY )); then
+        [[ -d "$T1_BACKUP" ]] && hint+=" such as $T1_BACKUP"
+        warn "The T1 chip is in recovery mode (USB 05ac:1281): its firmware is missing from the EFI partition."
+        warn "Touch Bar, camera, Touch ID and light sensor cannot work until EFI/APPLE/EMBEDDEDOS/ is restored"
+        warn "($hint). Skipping the Touch Bar driver."
+        DO_TB=0
+        return 0
+    fi
+    if ! src="$(find_t1_firmware)"; then
+        warn "EFI/APPLE/EMBEDDEDOS/ not found on a mounted EFI partition, so it was not backed up."
+        warn "Never delete or reformat the EFI partition: it holds the Touch Bar firmware."
+        return 0
+    fi
+    if [[ -d "$T1_BACKUP" ]] && diff -rq "$src" "$T1_BACKUP" >/dev/null 2>&1; then
+        return 0
+    fi
+    rm -rf "$T1_BACKUP"
+    mkdir -p "$(dirname "$T1_BACKUP")"
+    if ! cp -r "$src" "$T1_BACKUP"; then
+        warn "Could not back up $src to $T1_BACKUP; back it up yourself."
+        rm -rf "$T1_BACKUP"
+        return 0
+    fi
+    log "Backed up the T1 firmware ($src) to $T1_BACKUP; keep a copy off this machine too."
 }
 
 # ---------------------------------------------------------------- keyboard --
@@ -308,15 +397,19 @@ EOF
 #!/bin/sh
 # Installed by mbp132-setup.sh: runs around every sleep.
 # pre:  disable ACPI wake sources that cause instant wake-ups (lid sensor, USB,
-#       Wi-Fi, PCIe root ports), keep keyboard/trackpad wake (SPIT) on, keep
-#       every PCI device out of d3cold, and unload the Thunderbolt driver
-#       (its suspend/resume fails and the USB-C ports disappear after waking).
+#       Wi-Fi, PCIe root ports; matched by kind because the root port names
+#       differ per model, e.g. RP10 on the 13,1), keep keyboard/trackpad wake
+#       (SPIT) on, keep every PCI device out of d3cold, and unload the
+#       Thunderbolt driver (its suspend/resume fails and the USB-C ports
+#       disappear after waking).
 # post: load the Thunderbolt driver again so the USB-C ports come back.
 case "$1" in
 pre)
-    for d in LID0 XHC1 XHC2 XHC3 ARPT RP01 RP05 RP09 RP12; do
-        grep -q "^$d.*enabled" /proc/acpi/wakeup && echo "$d" > /proc/acpi/wakeup
-    done
+    while read -r d _ state _; do
+        case "$d" in
+        LID*|XHC*|ARPT|RP[0-9]*) [ "$state" = "*enabled" ] && echo "$d" > /proc/acpi/wakeup ;;
+        esac
+    done < /proc/acpi/wakeup
     grep -q "^SPIT.*disabled" /proc/acpi/wakeup && echo SPIT > /proc/acpi/wakeup
     for f in /sys/bus/pci/devices/*/d3cold_allowed; do echo 0 > "$f"; done
     modprobe -r thunderbolt
@@ -444,6 +537,16 @@ report_body() {
         distro "$(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}")" \
         cmdline "$(cat /proc/cmdline)"
 
+    printf '\n## Detected\n'
+    detect_hardware
+    local t1=none
+    (( HAS_T1 )) && t1="iBridge (05ac:8600)"
+    (( T1_RECOVERY )) && t1="RECOVERY MODE (05ac:1281), firmware missing"
+    printf '%-16s %s\n' support "${MODEL_STATUS[$(cat /sys/class/dmi/id/product_name 2>/dev/null)]:-not supported}" \
+        T1 "$t1" \
+        T1-firmware "$(find_t1_firmware || echo 'not found on a mounted EFI partition')" \
+        BCM43602 "$( (( HAS_BCM43602 )) && echo yes || echo no)"
+
     report_section "PCI devices" lspci -nnk
     report_section "USB devices" lsusb
     report_section "DKMS" dkms status
@@ -469,8 +572,8 @@ report_body() {
     report_section "iw reg get" iw reg get
 
     printf '\n## Files installed by this script\n'
-    for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" "$F_SLEEPCONF" \
-             "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"; do
+    for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
+             "$F_SLEEPCONF" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$T1_BACKUP"; do
         [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
     done
 
@@ -496,8 +599,9 @@ report() {
 # --------------------------------------------------------------- uninstall --
 uninstall() {
     log "Removing everything installed by this script"
-    rm -f "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" "$F_SLEEPCONF" \
-          "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"
+    rm -f "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
+          "$F_SLEEPCONF" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"
+    [[ -d "$T1_BACKUP" ]] && log "Keeping the T1 firmware backup in $T1_BACKUP"
     if [[ -d "$WIFI_BACKUP" ]]; then
         local f
         for f in "$WIFI_BACKUP"/*; do
@@ -554,6 +658,18 @@ if (( UNINSTALL )); then uninstall; exit 0; fi
 [[ -n "$WIFI_MAC" ]] && validate_wifi_mac
 check_vendored_drivers
 
+detect_hardware
+if (( HAS_T1 )); then
+    check_t1
+elif (( DO_TB )); then
+    log "No Touch Bar (T1) found; skipping the Touch Bar driver."
+    DO_TB=0
+fi
+if (( DO_WIFI && !HAS_BCM43602 )); then
+    log "No BCM43602 Wi-Fi found; skipping the Wi-Fi settings (other chips need none)."
+    DO_WIFI=0
+fi
+
 install_deps
 (( DO_AUDIO )) && install_audio
 (( DO_TB ))    && install_touchbar
@@ -575,6 +691,7 @@ After rebooting:
 Tips:
   - Double or missed keystrokes: KDE System Settings > Accessibility >
     Keyboard Filters > Bounce keys (~40 ms).
-  - Wi-Fi: 2.4 GHz only. For 5 GHz use a USB adapter (e.g. MediaTek MT7921AU).
+  - BCM43602 Wi-Fi (Touch Bar models): 2.4 GHz only. For 5 GHz use a USB adapter (e.g. MediaTek MT7921AU).
+  - Never delete or reformat the EFI partition: EFI/APPLE/EMBEDDEDOS/ holds the Touch Bar firmware.
   - Something broken? Run  sudo ./mbp132-setup.sh --report  and attach the file to an issue.
 EOF

@@ -9,10 +9,14 @@
 - CI: lint (shellcheck, `bash -n`, Python compile check) and DKMS builds of the vendored Touch Bar driver against Arch, CachyOS and Manjaro kernel packages.
 - `--report`: writes a hardware and driver report for bug reports on any model, with MAC addresses, serial numbers, hostname and user name masked.
 - Issue template for test reports.
+- Support for the other 2016-2017 MacBook Pros (13,1, 13,3, 14,1, 14,2, 14,3), untested. The Touch Bar driver and Wi-Fi settings are installed only if the T1 chip or a BCM43602 is present.
+- udev rule that switches the iBridge back to USB configuration 1 after usbmuxd <= 1.1.1 sets it to 0.
+- Backup of the T1 firmware (`EFI/APPLE/EMBEDDEDOS/`) to `/var/lib/mbp132-setup/t1-firmware/`; a T1 in recovery mode (`05ac:1281`) is reported and the Touch Bar driver skipped.
 - Hardware notes (`NOTES.md`), test checklist (`TESTING.md`), per-driver documentation (`drivers/README.md`) and the `bcmprobe.py` diagnostics tool.
 
 ### Changed
 - `mbp132-setup.sh` installs drivers from the vendored tree: the Touch Bar driver is copied to `/usr/src/appleibridge-<version>` and rebuilt through DKMS on every run; the audio driver is copied to `/usr/local/src/mbp132-setup` with a fingerprint file so unchanged installs are skipped. The old clone-based flow was removed.
+- The sleep hook disables wake sources by kind (`LID*`, `XHC*`, `ARPT`, `RP*`) instead of a fixed 13,2 list.
 - Applied the `struct tb_touch` build fix to the vendored driver as a committed patch and bumped `PACKAGE_VERSION` to `0.1.1` to mark the fork.
 
 ### Fixed

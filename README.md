@@ -30,7 +30,7 @@ Both drivers are vendored in this repository (`drivers/`); the script installs t
 
 Options: `--iso`, `--fn-ctrl-swap`, `--windows-keys`, `--wifi-mac MAC`, `--no-audio`, `--no-touchbar`, `--no-sleep`, `--no-wifi`, `--force`, `--uninstall`, `--report`. Run `--help` for details.
 
-Other 2016-2017 MacBook Pros are untested. To help, run `sudo ./mbp132-setup.sh --report` (works on any model, changes nothing) and open a [test report](https://github.com/360900/mbp132-setup/issues/new?template=test-report.yml).
+Other 2016-2017 MacBook Pros (13,1, 13,3, 14,1, 14,2, 14,3) are supported but untested. The Touch Bar and Wi-Fi parts are installed only where that hardware exists. To help, run `sudo ./mbp132-setup.sh --report` (works on any model, changes nothing) and open a [test report](https://github.com/360900/mbp132-setup/issues/new?template=test-report.yml).
 
 After every kernel update, run `dkms status` before rebooting: both drivers should show `installed` for the new kernel.
 
@@ -40,10 +40,12 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 - The build fails on 6.15+ kernels because `struct tb_touch` is used before it is defined. The script moves the definition.
 - In `auto`/`display` mode the driver calls `usb_set_configuration()` inside its own probe and deadlocks, which hangs modprobe and boot. The script sets `tb_mode_param=keyboard`, which keeps the current USB configuration.
 - `hid_sensor_hub` claims the second iBridge interface first, leaving the Touch Bar dark. The script blacklists it; `apple-ib-als` takes over the light sensor.
+- usbmuxd up to 1.1.1 (the version Arch ships) switches the iBridge to USB configuration 0, which turns off the Touch Bar, camera and light sensor. A udev rule switches it back to 1.
+- At every power-on the Mac loads the T1 chip's firmware from `EFI/APPLE/EMBEDDEDOS/` on the EFI partition. Without it the T1 shows up as `05ac:1281` (recovery mode) and the Touch Bar, camera, Touch ID and light sensor stop working; only reinstalling macOS restores it. The script backs that folder up to `/var/lib/mbp132-setup/t1-firmware/`. **Never delete or reformat the EFI partition.**
 
 **Suspend**
 - The Apple S3X NVMe and the Thunderbolt xHCI controllers fail to resume from `d3cold`, so d3cold is disabled for all PCI devices before each sleep.
-- Instant wake-ups come from ACPI wake sources: the lid sensor `LID0`, the USB controllers `XHC1-3`, Wi-Fi `ARPT`, and the PCIe root ports `RP01/05/09/12`. These are disabled before each sleep; keyboard/trackpad wake (`SPIT`) stays on. Because the lid sensor can't wake it, open the lid and **press a key** to wake.
+- Instant wake-ups come from ACPI wake sources: the lid sensor `LID0`, the USB controllers `XHC*`, Wi-Fi `ARPT`, and the PCIe root ports `RP*` (`RP01/05/09/12` on the 13,2; the names differ per model). These are disabled before each sleep; keyboard/trackpad wake (`SPIT`) stays on. Because the lid sensor can't wake it, open the lid and **press a key** to wake.
 - The Thunderbolt driver's suspend/resume fails, and the USB-C ports' USB controllers vanish until reboot. The sleep hook unloads `thunderbolt` before sleep and loads it again after waking.
 
 **Wi-Fi (BCM43602, board 0x157)**
@@ -61,6 +63,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 ```
 /etc/modprobe.d/mbp132-touchbar.conf
 /etc/modules-load.d/mbp132-touchbar.conf
+/etc/udev/rules.d/40-mbp132-ibridge.rules
 /etc/modprobe.d/mbp132-applespi.conf        (only with --iso / --fn-ctrl-swap)
 /etc/udev/rules.d/99-mbp132-sleep.rules
 /usr/lib/systemd/system-sleep/mbp132-sleep-fix
@@ -69,6 +72,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /etc/NetworkManager/dispatcher.d/99-mbp132-wifi-powersave
 /etc/NetworkManager/conf.d/mbp132-wifi.conf
 /var/lib/mbp132-setup/nvram-backup/         (only if an NVRAM file had to be moved)
+/var/lib/mbp132-setup/t1-firmware/          (backup of EFI/APPLE/EMBEDDEDOS/; kept on --uninstall)
 /usr/src/appleibridge-0.1.1                   (DKMS source, copied from drivers/apple-ibridge)
 /usr/local/src/mbp132-setup/snd_hda_macbookpro (copied from drivers/snd_hda_macbookpro)
 ```

@@ -31,10 +31,13 @@ reboot
    - Esc works.
    - Holding Fn shows F1–F12.
    - The brightness, volume and keyboard-backlight keys work.
-3. Audio: speakers, microphone, headphone jack.
+   - `/var/lib/mbp132-setup/t1-firmware/combined.memboot` exists (the T1 firmware backup).
+   - With usbmuxd installed (`pacman -S usbmuxd`, then reboot), the Touch Bar still lights up and this prints `1`: `cat "$(dirname "$(grep -l 8600 /sys/bus/usb/devices/*/idProduct)")/bConfigurationValue"`.
+3. Audio: speakers, microphone, headphone jack. Also after 2 minutes of silence (codec power saving, `cat /sys/module/snd_hda_intel/parameters/power_save`).
 4. Suspend, three times:
    - Close the lid, wait 30 s, open it and press a key. It must not wake by itself.
    - Check with `journalctl -b -o short-unix | grep -E "PM: suspend (entry|exit)"`.
+   - After a suspend, `grep enabled /proc/acpi/wakeup` lists no `LID*`, `XHC*`, `ARPT` or `RP*` entry, and `SPIT` is enabled.
 5. USB-C after sleep: a USB stick in a USB-C port is detected without replugging.
 6. Wi-Fi:
    - It connects at 2.4 GHz.
