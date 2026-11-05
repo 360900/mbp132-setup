@@ -9,7 +9,7 @@
 - Volume curve (`mbp132-volume.service`, udev rule): the analog output's software volume spans -40..0 dB instead of -51..0 dB, and PipeWire is told it spans -80..0 dB (ACP `DecibelFix` in a profile set for the built-in card only), which halves the dB of its cubic curve. Before, everything below ~20% was inaudible. Verified by ear on the MacBookPro13,2 (2026-11-01): audible from 5%, even steps. A first version (even dB steps via `api.alsa.ignore-dB`) felt exponential, and its `/var/lib/alsa/card0.conf.d/` file was deleted by `alsa-restore.service` at the next boot; hence the boot service.
 - Vendored `apple-ibridge` (F13-Kr1pt0n, branch `touchbar-driver-hid-driver`, pinned `ecfadc3`, 2025-09-02) and `snd_hda_macbookpro` (davidjo, `master`, pinned `89b22ff`, 2026-09-06) under `drivers/`; installs no longer clone from GitHub.
 - CI: lint (shellcheck, `bash -n`, Python compile check) and DKMS builds of the vendored Touch Bar driver against Arch, CachyOS and Manjaro kernel packages.
-- `--report`: writes a hardware and driver report for bug reports on any model, with MAC addresses, serial numbers, hostname and user name masked.
+- `--report`: writes a hardware and driver report for bug reports on any model, with MAC addresses, serial numbers, Wi-Fi network names, hostname and user name masked.
 - Issue template for test reports.
 - Support for the other 2016-2017 MacBook Pros (13,1, 13,3, 14,1, 14,2, 14,3), untested. The Touch Bar driver and Wi-Fi settings are installed only if the T1 chip or a BCM43602 is present.
 - udev rule that switches the iBridge back to USB configuration 1 after usbmuxd <= 1.1.1 sets it to 0.

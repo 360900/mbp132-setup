@@ -678,7 +678,8 @@ EOF
 # ------------------------------------------------------------------ report --
 # Hardware and driver state for bug reports, on any model. Read-only; root
 # adds the kernel log. MAC addresses (except the vendor part), USB serial
-# numbers, the hostname and the user name are masked before writing.
+# numbers, Wi-Fi network names, the hostname and the user name are masked
+# before writing.
 REPORT_PATTERN='apple|ibridge|applespi|brcm|cs8409|snd_hda|thunderbolt|xhci|nvme|i915|amdgpu|radeon|acpi.*(error|bug)|pm: |suspend|resume'
 
 report_section() { # report_section <title> <command...>
@@ -698,6 +699,7 @@ report_redact() {
     sed -E \
         -e 's/(([0-9a-fA-F]{2}:){2}[0-9a-fA-F]{2}):([0-9a-fA-F]{2}:){2}[0-9a-fA-F]{2}/\1:xx:xx:xx/g' \
         -e 's/(SerialNumber|serial)([:=] *)[^ ]+/\1\2<masked>/Ig' \
+        -e 's/^([[:space:]]*ssid ).*/\1<masked>/' \
         ${host:+-e "s/\\b${host}\\b/<host>/g"} \
         ${user:+-e "s/\\b${user}\\b/<user>/g"}
 }
