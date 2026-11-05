@@ -42,6 +42,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 - In `auto`/`display` mode the driver calls `usb_set_configuration()` inside its own probe and deadlocks, which hangs modprobe and boot. The script sets `tb_mode_param=keyboard`, which keeps the current USB configuration.
 - `hid_sensor_hub` claims the second iBridge interface first, leaving the Touch Bar dark. The script blacklists it; `apple-ib-als` takes over the light sensor.
 - usbmuxd up to 1.1.1 (the version Arch ships) switches the iBridge to USB configuration 0, which turns off the Touch Bar, camera and light sensor. A udev rule switches it back to 1, so the script installs usbmuxd (needed for iPhone USB tethering) along with it.
+- USB keeps power in s2idle, so waking calls the driver's `resume`, which it did not have, and the Touch Bar stayed dark. The vendored driver now has one.
 - At every power-on the Mac loads the T1 chip's firmware from `EFI/APPLE/EMBEDDEDOS/` on the EFI partition. Without it the T1 shows up as `05ac:1281` (recovery mode) and the Touch Bar, camera, Touch ID and light sensor stop working; only reinstalling macOS restores it. The script backs that folder up to `/var/lib/mbp132-setup/t1-firmware/`. **Never delete or reformat the EFI partition.**
 
 **Audio**
@@ -85,7 +86,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /etc/udev/rules.d/90-mbp132-volume.rules (points the built-in card at that curve)
 /var/lib/mbp132-setup/nvram-backup/         (only if an NVRAM file had to be moved)
 /var/lib/mbp132-setup/t1-firmware/          (backup of EFI/APPLE/EMBEDDEDOS/; kept on --uninstall)
-/usr/src/appleibridge-0.1.2                   (DKMS source, copied from drivers/apple-ibridge)
+/usr/src/appleibridge-0.1.3                   (DKMS source, copied from drivers/apple-ibridge)
 /usr/local/src/mbp132-setup/snd_hda_macbookpro (copied from drivers/snd_hda_macbookpro)
 ```
 
@@ -95,7 +96,7 @@ Both drivers are committed to this repository under `drivers/` (via `git subtree
 
 | Driver | Upstream | Pinned commit | Local changes |
 |---|---|---|---|
-| `apple-ibridge` (Touch Bar, ALS) | [F13-Kr1pt0n/macbook-pro-touchbar-driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver), branch `touchbar-driver-hid-driver` | `ecfadc3` (2025-09-02) | `struct tb_touch` build fix and platform-driver port for Linux 7.3 ([`patches/`](patches)), `PACKAGE_VERSION` bumped to `0.1.2` to mark the fork |
+| `apple-ibridge` (Touch Bar, ALS) | [F13-Kr1pt0n/macbook-pro-touchbar-driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver), branch `touchbar-driver-hid-driver` | `ecfadc3` (2025-09-02) | `struct tb_touch` build fix, platform-driver port for Linux 7.3 and s2idle resume ([`patches/`](patches)), `PACKAGE_VERSION` bumped to `0.1.3` to mark the fork |
 | `snd_hda_macbookpro` (Cirrus CS8409 audio) | [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro), `master` | `89b22ff` (2026-09-06) | none |
 
 Both are GPL-2.0 upstream; their `LICENSE` files are kept in `drivers/*/`.

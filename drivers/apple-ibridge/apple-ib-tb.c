@@ -1283,6 +1283,21 @@ static int appletb_reset_resume(struct hid_device *hdev)
 
 	return 0;
 }
+
+/*
+ * USB keeps power in s2idle, so the device takes plain resume, not reset_resume.
+ * Autosuspend does not set the suspended flag, so that path returns early.
+ */
+static int appletb_resume(struct hid_device *hdev)
+{
+	struct appletb_device *tb_dev =
+		appleib_get_drvdata(hid_get_drvdata(hdev), &appletb_hid_driver);
+
+	if (!appletb_get_report_info(tb_dev, hdev)->suspended)
+		return 0;
+
+	return appletb_reset_resume(hdev);
+}
 #endif
 
 static struct appletb_device *appletb_alloc_device(struct device *log_dev)
@@ -1316,6 +1331,7 @@ static struct hid_driver appletb_hid_driver = {
 	.input_configured = appletb_input_configured,
 #ifdef CONFIG_PM
 	.suspend = appletb_suspend,
+	.resume = appletb_resume,
 	.reset_resume = appletb_reset_resume,
 #endif
 };

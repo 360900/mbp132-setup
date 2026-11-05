@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: mbp132-setup
+Date: Thu, 5 Nov 2026 19:30:00 +0300
+Subject: [PATCH] apple-ib-tb: resume after s2idle
+
+USB keeps power in s2idle, so the device takes plain resume, but the driver
+only had reset_resume. The suspended flag stayed set and the Touch Bar stayed
+dark until the module was reloaded. Run the same restore from resume when the
+flag is set. Autosuspend does not set the flag and is unaffected.
+---
+diff --git a/apple-ib-tb.c b/apple-ib-tb.c
+index 1ddc2d4..eebc594 100644
+--- a/apple-ib-tb.c
++++ b/apple-ib-tb.c
+@@ -1283,6 +1283,21 @@ static int appletb_reset_resume(struct hid_device *hdev)
+ 
+ 	return 0;
+ }
++
++/*
++ * USB keeps power in s2idle, so the device takes plain resume, not reset_resume.
++ * Autosuspend does not set the suspended flag, so that path returns early.
++ */
++static int appletb_resume(struct hid_device *hdev)
++{
++	struct appletb_device *tb_dev =
++		appleib_get_drvdata(hid_get_drvdata(hdev), &appletb_hid_driver);
++
++	if (!appletb_get_report_info(tb_dev, hdev)->suspended)
++		return 0;
++
++	return appletb_reset_resume(hdev);
++}
+ #endif
+ 
+ static struct appletb_device *appletb_alloc_device(struct device *log_dev)
+@@ -1316,6 +1331,7 @@ static struct hid_driver appletb_hid_driver = {
+ 	.input_configured = appletb_input_configured,
+ #ifdef CONFIG_PM
+ 	.suspend = appletb_suspend,
++	.resume = appletb_resume,
+ 	.reset_resume = appletb_reset_resume,
+ #endif
+ };

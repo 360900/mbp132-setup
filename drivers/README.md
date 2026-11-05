@@ -21,9 +21,12 @@ in place.
     instead of an `acpi_driver`. Linux 7.3 removed `struct acpi_driver`, so
     the original fails to build there. Applied from
     `patches/0002-apple-ibridge-bind-as-a-platform-driver-for-Linux-7.3.patch`.
-  - `dkms.conf`: `PACKAGE_VERSION` bumped from `0.1` to `0.1.2` to mark our
-    fork (0.1.1: tb_touch fix; 0.1.2: platform driver), so the setup script
-    can replace older copies cleanly.
+  - `apple-ib-tb.c` has a `.resume` handler. USB keeps power in s2idle, so
+    the original, with only `.reset_resume`, left the Touch Bar dark after
+    waking. Applied from `patches/0004-apple-ib-tb-resume-after-s2idle.patch`.
+  - `dkms.conf`: `PACKAGE_VERSION` bumped from `0.1` to `0.1.3` to mark our
+    fork (0.1.1: tb_touch fix; 0.1.2: platform driver; 0.1.3: s2idle resume),
+    so the setup script can replace older copies cleanly.
 
 ## snd_hda_macbookpro (Cirrus CS8409 audio)
 
@@ -45,7 +48,8 @@ in place.
    `git subtree pull --prefix=drivers/<driver> <upstream-url> <branch> --squash`
    and re-pin `drivers/README.md` to the new commit.
 2. Re-check that our local changes are still applied (for `apple-ibridge`:
-   the `struct tb_touch` placement and `PACKAGE_VERSION`; for
+   the `struct tb_touch` placement, the platform driver, `.resume` and
+   `PACKAGE_VERSION`; for
    `snd_hda_macbookpro`: the resume setup in `cirrus_apple.h`).
 3. If `drivers/apple-ibridge` changed, bump `PACKAGE_VERSION` in its
    `dkms.conf` again.
