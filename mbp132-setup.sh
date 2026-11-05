@@ -18,8 +18,9 @@
 #   - iPhone:     usbmuxd (USB tethering), without it turning the Touch Bar off
 #   - Wi-Fi:      BCM43602 calibration file (MacBookPro13,2): 2.4 GHz and all
 #                 5 GHz channels allowed in your country (radar channels
-#                 included), 80 MHz 802.11ac; power saving off. Other BCM43602
-#                 models: no calibration file, 2.4 GHz only.
+#                 included), 80 MHz 802.11ac; power saving off; driver reloaded
+#                 around sleep. Other BCM43602 models: no calibration file,
+#                 2.4 GHz only.
 #
 # Tested on: MacBookPro13,2, CachyOS, kernel 7.3.1 (GRUB, mkinitcpio, systemd).
 #
@@ -80,6 +81,7 @@ F_SLEEP_MODE=/etc/systemd/sleep.conf.d/mbp132-s2idle.conf
 F_KXKB_DEFAULT=/etc/xdg/kxkbrc
 F_WIFI_DISPATCH=/etc/NetworkManager/dispatcher.d/99-mbp132-wifi-powersave
 F_WIFI_NMCONF=/etc/NetworkManager/conf.d/mbp132-wifi.conf
+F_WIFI_RELOAD=/usr/lib/systemd/system-sleep/mbp132-wifi-reload
 FW_BRCM_DIR=/usr/lib/firmware/brcm
 WIFI_BACKUP=/var/lib/mbp132-setup/nvram-backup
 WIFI_NVRAM_TEMPLATE="$SCRIPT_DIR/firmware/brcmfmac43602-pcie.txt.in"
@@ -554,6 +556,8 @@ EOF
 #    brcmfmac keeps the file's country if it matches the system's.
 #  - Other generic 43602 NVRAM files shared online make association fail.
 #  - Power saving makes the link slow and laggy.
+#  - The firmware does not survive sleep: it stops answering the driver after
+#    waking unless brcmfmac is reloaded around it.
 validate_wifi_country() {
     local cc=${WIFI_COUNTRY%%/*} rev=
     [[ $WIFI_COUNTRY == */* ]] && rev=${WIFI_COUNTRY#*/}
@@ -627,7 +631,18 @@ install_wifi() {
 
     if [[ $WIFI_NVRAM_MODELS == *" $model "* ]]; then
         install_wifi_nvram
+        write_file "$F_WIFI_RELOAD" 755 <<'EOF'
+#!/bin/sh
+# Installed by mbp132-setup.sh: unload brcmfmac before sleep, load it after
+# waking. Otherwise the firmware stops answering the driver after a resume.
+case "$1" in
+    pre)  modprobe -r brcmfmac_wcc brcmfmac ;;
+    post) modprobe brcmfmac ;;
+esac
+exit 0
+EOF
     else
+        rm -f "$F_WIFI_RELOAD"
         log "No tested Wi-Fi calibration file for $model; Wi-Fi stays 2.4 GHz only."
     fi
 
@@ -738,7 +753,7 @@ report_body() {
 
     printf '\n## Files installed by this script\n'
     for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
-             "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
+             "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
              "$VOLUME_PROFILE_SET" "$(wifi_nvram_file)" "$T1_BACKUP"; do
         [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
     done
@@ -766,7 +781,7 @@ report() {
 uninstall() {
     log "Removing everything installed by this script"
     rm -f "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
-          "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"
+          "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"
     systemctl disable mbp132-volume.service >/dev/null 2>&1 || true
     rm -f "$F_WP_VOLUME" "$F_VOLUME_HELPER" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" "$VOLUME_PROFILE_SET" \
           /var/lib/alsa/card*.conf.d/"$ALSA_VOLUME_NAME"

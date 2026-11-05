@@ -24,6 +24,7 @@
 - Applied the `struct tb_touch` build fix to the vendored driver as a committed patch and bumped `PACKAGE_VERSION` to `0.1.1` to mark the fork.
 
 ### Fixed
+- Wi-Fi dead after waking on the MacBookPro13,2 (driver commands time out, scans fail). A sleep hook reloads `brcmfmac` around sleep; 0 timeouts in every sleep since (2026-11-04).
 - Touch Bar dark after s2idle. USB keeps power there, so the device takes plain resume, and the driver only had `reset_resume`. Added `resume`; `PACKAGE_VERSION` bumped to `0.1.3`. Verified on the MacBookPro13,2 with one s2idle sleep (2026-11-05).
 - Speakers silent after suspend until reboot. The vendored CS8409 driver's resume handler only re-ran the generic HDA init, never the Apple codec/CS42L83/amp setup that `cs_8409_boot_setup()` does at probe. It now runs that setup again on the first resume after a system sleep (PM notifier), or whenever the codec's subsystem id register shows a power loss, and restores the firmware's subsystem id and pin configs. Verified on the MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-01): sound after S3. Patched in `patch_cirrus/cirrus_apple.h` and `patch_cs8409.h.diff`.
 - Touch Bar driver failed to build on Linux 7.3 (`struct acpi_driver` was removed). `apple-ibridge` now binds as a platform driver to the `APP7777` device the ACPI core creates; `PACKAGE_VERSION` bumped to `0.1.2`. Found on the MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-01).

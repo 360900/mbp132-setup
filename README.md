@@ -60,6 +60,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 - On the 13,2 the script installs [firmware/brcmfmac43602-pcie.txt.in](firmware/README.md) as `brcmfmac43602-pcie.Apple Inc.-MacBookPro13,2.txt`, with your MAC (`--wifi-mac`; macOS shows it with `ifconfig en0 | grep ether`, otherwise a stable made-up one) and your country. Measured on one 13,2: 2.4 GHz download 1.4-2.0 → 6.5-7.0 MB/s; 5 GHz 80 MHz 802.11ac, link rate up to 702 Mbit/s, ~40 MB/s download.
 - The country revision decides which 5 GHz channels work. For Turkey, revision 0 leaves 100-140 off and makes 52-64 passive, so joining a router on a radar channel fails at once (NetworkManager then asks for the password again, which is fine). `TR/1` allows 52-140. The script picks the system's regulatory country and a known-better revision (`--wifi-country CC/REV` overrides). brcmfmac keeps the file's country when it matches the system's.
 - Other `brcmfmac43602-pcie.txt` files shared online (made for other boards) make connecting fail, so the script moves them to `/var/lib/mbp132-setup/nvram-backup/`.
+- The firmware stops answering the driver after waking, and scans fail. On the 13,2 a sleep hook unloads `brcmfmac` before sleep and loads it after waking.
 - Power saving makes the link slow and laggy; a NetworkManager dispatcher script turns it off. NetworkManager uses a stable per-network MAC, or the address given with `--wifi-mac`.
 
 **Keyboard (`--windows-keys`, KDE Plasma)**
@@ -75,6 +76,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /etc/modprobe.d/mbp132-applespi.conf        (only with --iso / --fn-ctrl-swap)
 /etc/udev/rules.d/99-mbp132-sleep.rules
 /usr/lib/systemd/system-sleep/mbp132-sleep-fix
+/usr/lib/systemd/system-sleep/mbp132-wifi-reload (13,2 only)
 /etc/systemd/sleep.conf.d/mbp132-no-hibernate.conf
 /etc/systemd/sleep.conf.d/mbp132-s2idle.conf (13,2 only)
 /etc/xdg/kxkbrc                             (only with --windows-keys, if not already present)
