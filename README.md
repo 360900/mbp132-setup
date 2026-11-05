@@ -16,7 +16,7 @@ One script to make Linux usable on the **MacBook Pro 13" 2016 with Touch Bar (Ma
 | Wi-Fi (BCM43602), 5 GHz | ✅ on the 13,2: all channels your country allows, radar channels included, 80 MHz 802.11ac (the chip has no 160 MHz). Other models: not yet |
 | Touch ID | ❌ |
 
-Tested on CachyOS, kernel 7.2.9, GRUB + mkinitcpio + systemd.
+Tested on CachyOS, kernel 7.3.1, GRUB + mkinitcpio + systemd.
 
 ## Usage
 

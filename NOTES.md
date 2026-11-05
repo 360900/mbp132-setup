@@ -2,7 +2,7 @@
 
 Findings behind `mbp132-setup.sh`, from testing on one MacBook Pro 13" 2016 with Touch Bar and four Thunderbolt 3 ports (MacBookPro13,2, Core i5).
 
-Test system: CachyOS, kernel 7.2.x (LTS 6.18 also installed), GRUB, mkinitcpio with the systemd hook, btrfs, KDE Plasma (Wayland).
+Test system: CachyOS, kernel 7.3.1 (LTS 6.18 also installed), GRUB, mkinitcpio with the systemd hook, btrfs, KDE Plasma (Wayland).
 
 ## Touch Bar (iBridge)
 
@@ -19,8 +19,9 @@ Test system: CachyOS, kernel 7.2.x (LTS 6.18 also installed), GRUB, mkinitcpio w
 
 ## Suspend / resume
 
-- `deep` (S3) works with the fixes below. `s2idle` broke the Touch Bar and audio after waking.
-- **Instant wake-ups:** these come from the ACPI wake sources `LID0`, `XHC1`–`XHC3`, `ARPT` (Wi-Fi) and the PCIe root ports `RP01/05/09/12`. Disable them before each sleep, but keep `SPIT` (keyboard and trackpad) enabled. Because the lid sensor can't wake the machine, open the lid and press a key.
+- The 13,2 uses `s2idle`, because `deep` (S3) breaks Wi-Fi (see [Wi-Fi after sleep](#wi-fi-after-sleep)). Set with `MemorySleepMode=s2idle` in `sleep.conf.d`, so no boot option is needed.
+- `s2idle` once broke the Touch Bar and audio. With the current drivers audio is fine, and the Touch Bar needed a `.resume` handler (`patches/0004`).
+- **Instant wake-ups:** these come from the ACPI wake sources `LID0`, `XHC1`–`XHC3`, `ARPT` (Wi-Fi) and the PCIe root ports `RP01/05/09/12`. Disable them before each sleep, but keep `SPIT` (keyboard and trackpad) enabled. Opening the lid still wakes the machine with `LID0` disabled, in both sleep modes.
 - **d3cold:** keep every PCI device out of `d3cold`. The Apple S3X NVMe (`106b:2003`) and the Thunderbolt xHCI controllers fail to resume from it.
 - **Thunderbolt:** suspend/resume of the `thunderbolt` driver fails, and the USB-C ports' USB controllers disappear until reboot. Unload the module before sleep and load it after waking.
 - **Hibernation:** resume fails with a black screen, so it is disabled with `AllowHibernation=no`, `AllowSuspendThenHibernate=no` and `AllowHybridSleep=no`.
@@ -69,6 +70,49 @@ The shipped file is a MacBookPro14,3's calibration, not this board's. Routes to 
 - Record the NVRAM that the Windows driver writes to the chip, using a Windows VM with the card passed through over VFIO and a QEMU MMIO-write trace (the "sonals" method).
 
 Never commit Apple or Broadcom files, or data extracted from them, to this repository.
+
+## Wi-Fi after sleep
+
+Measured on one 13,2, kernel 7.3.1, firmware 7.35.177.61, 2026-11-04 and 05.
+
+**Failure:** after a bad sleep every join fails about 100 ms after the request: firmware `SET_SSID status=1`, `ASSOC-REJECT status_code=16`, no LINK event. The router still shows up in scans. 5 GHz always fails and 2.4 GHz often does. NetworkManager then asks for the password and can give up with `no-secrets`. Only a reboot clears it. The BSSID in the reject is often zero or the last network used, so it says nothing about which radio was tried.
+
+| Sleep, lid closed unless noted | 5 GHz broken afterwards |
+|---|---|
+| `deep`, charger connected throughout | 0 of 7 |
+| `deep`, battery throughout | 6 of 6 (some with the test hooks below) |
+| `deep`, plugged in during sleep | 1 of 1 |
+| `deep`, unplugged during sleep | Inconclusive, router on a radar channel |
+| `deep` that bounces, charger, lid open | 5 of 5 |
+| `s2idle`, battery | 0 of 2, rejoined in 3-4 s, 0 rejects |
+| Windows on this Mac, `S3`, battery | 0 of 3 |
+
+Not tested with `s2idle`: charger, 2.4 GHz, USB-C after waking, long sleeps, battery drain. Failure cause unknown: the state seems to be outside the card, or the firmware handles something the platform does badly.
+
+**Bounces:** on the charger, `deep` often enters and leaves S3 within about 1 ms (2-6 of 8 per run), and charger presence was the only thing that changed the rate (battery: 0 of 9). Side, hub, full versus charging, `macsmc` drivers and Linux wake settings made no difference. Wake reason not found.
+
+**Tried in `deep`, did not help:**
+
+- Driver reload, wpa_supplicant restart, cfg80211 reload, PCI reset, ASPM off, `mpc=0`, pre-tuning the channel, enabling Bluetooth.
+- Loading the driver 30 s after waking.
+- Powering the card off before sleep (`RP12.ARPT.PDEN 1` plus runtime suspend of the root port, `RP12.BMIS` 0 to 7 and `EC.APWC` 0 show it ran). The card loses its BARs at wake; after a PCI rescan the failure was still there. `PDEN` set alone never runs the path: `APPD` is not reached.
+- Linux settings: comparing charger and battery awake, only audio power saving and `EC.EACP` differ.
+
+**Why firmware can't be swapped:** 7.35.177.61 is the newest full-offload image found, and the file `brcmfmac43602-pcie.ap.bin` is older and for access points. Windows and macOS both use host-mode drivers with `pci-bmac` images, which `brcmfmac` can't drive. macOS and Windows also carry separate `43602a2` images while linux-firmware's is labelled `43602a1`; PCI rev is 02, but that link is unverified. `broadcom-wl` 6.30.223.271 has no `43602` strings and was not tried.
+
+**Other findings:**
+
+- Without a reload around sleep, firmware commands time out after waking and scans return -5 (2 of 2). Hence `mbp132-wifi-reload`.
+- `acpi_osi=!Darwin` kills the keyboard and trackpad at boot: `SPIT._CRS` returns a different buffer and `applespi` times out. It also logs ACPI errors in Thunderbolt setup. Do not use it.
+- Router channels matter for testing: on radar ch 56 even a fresh boot failed 2 of 3 joins, on ch 40 and 48 it did not. This is separate from the failure above.
+- Thunderbolt: `timeout resetting host router` on every `deep` resume, even with only a charger connected. Not seen after `s2idle`.
+
+**Open:**
+
+- `macsmc-ac` `online` goes stale if the charger changes during sleep; `EC.EACP` stays right. Seen in `deep`.
+- NetworkManager's `no-secrets` give-up after repeated rejects.
+
+Never leave the brcmfmac debug mask on across a sleep: one such sleep ended in a reboot.
 
 ## Not working / out of scope
 

@@ -49,7 +49,7 @@ reboot
    - At 5 GHz `iw dev wlan0 info` shows `width: 80 MHz` (if the router uses 80 MHz or more).
    - `iw phy | grep -E '\[(52|100)\]'` shows `radar detection` without `no IR` (for Turkey: `--wifi-country` default `TR/1`).
    - `iw dev wlan0 get power_save` shows `off`.
-   - After each suspend above it reconnects within 30 s, on charger and battery, at 2.4 and 5 GHz, with no password prompt. `journalctl -b | grep -c ASSOC-REJECT` should not grow on an empty-channel router; on radar channels some rejects are normal.
+   - After each suspend above it reconnects within 30 s, on charger and battery, at 2.4 and 5 GHz, with no password prompt. `journalctl -b | grep -c ASSOC-REJECT` should not grow, except on radar channels, where some rejects are normal.
    - `ethtool -P wlan0` shows the `--wifi-mac` address (or the made-up one), not `00:90:4c:0d:f4:3e`.
    - `/usr/lib/firmware/brcm/` holds only `brcmfmac43602-pcie.Apple Inc.-MacBookPro13,2.txt` (ours) and package-owned files.
 7. Keyboard (if used): with `--iso`, the keys next to left Shift and the one below Esc are correct. With `--windows-keys`, AltGr works on right Command and right Option.
