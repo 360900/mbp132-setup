@@ -81,8 +81,12 @@ F_WIFI_NMCONF=/etc/NetworkManager/conf.d/mbp132-wifi.conf
 FW_BRCM_DIR=/usr/lib/firmware/brcm
 WIFI_BACKUP=/var/lib/mbp132-setup/nvram-backup
 WIFI_NVRAM_TEMPLATE="$SCRIPT_DIR/firmware/brcmfmac43602-pcie.txt.in"
-F_WP_VOLUME=/etc/wireplumber/wireplumber.conf.d/50-mbp132-volume.conf
+F_WP_VOLUME=/etc/wireplumber/wireplumber.conf.d/50-mbp132-volume.conf # older versions only
 ALSA_VOLUME_NAME=50-mbp132-volume.conf   # in /var/lib/alsa/cardN.conf.d/
+F_VOLUME_HELPER=/usr/local/libexec/mbp132-volume
+F_VOLUME_SERVICE=/etc/systemd/system/mbp132-volume.service
+F_VOLUME_UDEV=/etc/udev/rules.d/90-mbp132-volume.rules
+VOLUME_PROFILE_SET=/run/mbp132-setup/acp-default.conf
 # Models whose BCM43602 calibration file (firmware/) has been tested.
 WIFI_NVRAM_MODELS=" MacBookPro13,2 "
 # Firmware country revisions that open more 5 GHz channels than revision 0.
@@ -255,52 +259,72 @@ install_audio() {
 }
 
 # Volume: the driver has no hardware volume, so the slider drives alsa-lib's
-# "PCM" software volume (-51..0 dB). PipeWire maps the slider onto it with a
-# cubic curve, which puts everything below ~20% under -42 dB: inaudible on
-# these speakers. Use a -40..0 dB range and map the slider evenly in dB onto
-# it (ignore-dB), so each 5% step is 2 dB and 0% is still silent.
-pch_card() { # index of the Intel HDA (PCH) sound card
-    local f
-    for f in /proc/asound/card*/id; do
-        [[ "$(cat "$f")" == PCH ]] && { basename "$(dirname "$f")" | tr -dc 0-9; return 0; }
-    done
-    return 1
-}
-
+# "PCM" software volume (-51..0 dB) through PipeWire's cubic curve, which puts
+# everything below ~20% under -42 dB: inaudible on these speakers.
+#  - The software volume gets a -40..0 dB range (per-card alsa-lib config).
+#  - PipeWire is told the control spans -80..0 dB (an ACP DecibelFix in a
+#    profile set for this card only). That halves the dB of its cubic curve:
+#    10% = -30 dB, 20% = -21 dB, 50% = -9 dB; even loudness steps, 0% silent.
+# alsactl (alsa-restore.service) empties /var/lib/alsa/cardN.conf.d at boot,
+# so a boot service writes both files after it, then lets udev point the
+# card at the profile set. If that fails, the card keeps the stock behavior.
 install_volume() {
-    local card pci
-    if ! card="$(pch_card)"; then
-        warn "No Intel HDA sound card found; skipping the volume settings (run again after a reboot)."
-        return 0
-    fi
-    pci="$(basename "$(readlink -f "/sys/class/sound/card$card/device")")"
-    write_file "/var/lib/alsa/card$card.conf.d/$ALSA_VOLUME_NAME" 644 <<'EOF'
-# Installed by mbp132-setup.sh
-# Analog output volume: -40..0 dB (alsa-lib's default is -51..0 dB)
+    write_file "$F_VOLUME_HELPER" 755 <<EOF
+#!/bin/sh
+$MARKER: volume range and curve for the Intel HDA card (README, "Audio").
+card=""
+for f in /proc/asound/card*/id; do
+    [ "\$(cat "\$f")" = PCH ] && card=\$(basename "\$(dirname "\$f")")
+done
+[ -n "\$card" ] || exit 0
+dir=/var/lib/alsa/\${card}.conf.d
+mkdir -p "\$dir"
+cat > "\$dir/$ALSA_VOLUME_NAME" <<'ALSA'
+$MARKER: analog output volume -40..0 dB (default -51..0 dB)
 pcm.front.!0 {
 	@args [ CARD ]
 	@args.CARD { type string }
 	type asym
 	playback.pcm {
 		type softvol
-		slave.pcm { type hw card $CARD subdevice 0 }
-		control { name "PCM Playback Volume" card $CARD }
+		slave.pcm { type hw card \$CARD subdevice 0 }
+		control { name "PCM Playback Volume" card \$CARD }
 		min_dB -40.0
 	}
-	capture.pcm { type hw card $CARD }
+	capture.pcm { type hw card \$CARD }
 }
+ALSA
+mkdir -p "$(dirname "$VOLUME_PROFILE_SET")"
+{ cat /usr/share/alsa-card-profile/mixer/profile-sets/default.conf
+  printf '\n; %s\n; The PCM software volume spans -40..0 dB; reporting -80..0 dB halves\n; the dB of the cubic volume curve, for even loudness steps.\n[DecibelFix PCM]\ndb-values = 0:-80 255:0\n' "$MARKER"
+} > "$VOLUME_PROFILE_SET.tmp" && mv "$VOLUME_PROFILE_SET.tmp" "$VOLUME_PROFILE_SET"
+udevadm trigger --action=change "/sys/class/sound/\$card"
 EOF
-    write_file "$F_WP_VOLUME" 644 <<EOF
+    write_file "$F_VOLUME_SERVICE" 644 <<EOF
 $MARKER
-# Map the volume slider evenly in dB onto the -40..0 dB software volume, so
-# low settings stay audible.
-monitor.alsa.rules = [
-  {
-    matches = [ { device.name = "alsa_card.pci-${pci//:/_}" } ]
-    actions = { update-props = { api.alsa.ignore-dB = true } }
-  }
-]
+[Unit]
+Description=MacBook Pro speakers: volume range and curve
+After=alsa-restore.service alsa-state.service
+Before=systemd-user-sessions.service display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=$F_VOLUME_HELPER
+
+[Install]
+WantedBy=sound.target
 EOF
+    write_file "$F_VOLUME_UDEV" 644 <<EOF
+$MARKER
+# Built-in sound card: profile set with the volume curve fix (written at boot
+# by mbp132-volume.service; without it the card keeps the stock profile set).
+SUBSYSTEM=="sound", KERNEL=="card*", ATTR{id}=="PCH", TEST=="$VOLUME_PROFILE_SET", ENV{ACP_PROFILE_SET}="$VOLUME_PROFILE_SET"
+EOF
+    rm -f "$F_WP_VOLUME" # older versions mapped the slider with ignore-dB instead
+    udevadm control --reload || true
+    systemctl daemon-reload
+    systemctl enable mbp132-volume.service >/dev/null 2>&1 || warn "Could not enable mbp132-volume.service."
+    systemctl restart mbp132-volume.service || warn "mbp132-volume.service failed; see: journalctl -u mbp132-volume"
 }
 
 # --------------------------------------------------------------- touch bar --
@@ -699,8 +723,8 @@ report_body() {
 
     printf '\n## Files installed by this script\n'
     for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
-             "$F_SLEEPCONF" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_WP_VOLUME" "$(wifi_nvram_file)" \
-             "$T1_BACKUP"; do
+             "$F_SLEEPCONF" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
+             "$VOLUME_PROFILE_SET" "$(wifi_nvram_file)" "$T1_BACKUP"; do
         [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
     done
 
@@ -727,9 +751,12 @@ report() {
 uninstall() {
     log "Removing everything installed by this script"
     rm -f "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
-          "$F_SLEEPCONF" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_WP_VOLUME" \
+          "$F_SLEEPCONF" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"
+    systemctl disable mbp132-volume.service >/dev/null 2>&1 || true
+    rm -f "$F_WP_VOLUME" "$F_VOLUME_HELPER" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" "$VOLUME_PROFILE_SET" \
           /var/lib/alsa/card*.conf.d/"$ALSA_VOLUME_NAME"
-    rmdir /var/lib/alsa/card*.conf.d 2>/dev/null || true
+    systemctl daemon-reload || true
+    udevadm control --reload || true
     local nv
     nv="$(wifi_nvram_file)"
     grep -qsF "$MARKER" "$nv" && rm -f "$nv" && log "Removed $nv"

@@ -37,7 +37,7 @@ reboot
    - Run this with codec power saving on: `cat /sys/module/snd_hda_intel/parameters/power_save` must not be `0`. Remove any manual `snd_hda_intel power_save=0` option from `/etc/modprobe.d/` first, and reboot.
    - Play sound again after 2 minutes of silence; it must still work, without noise.
    - After a suspend, the speakers play without a reboot, and `journalctl -k -b | grep 'setting up codec and amps again'` shows one line per resume.
-   - Volume: at 5-10% the speakers are quiet but audible; `amixer -c0 sget PCM` shows -38 dB at 5% and -36 dB at 10%; 0% is silent.
+   - Volume, after a reboot: at 5-10% the speakers are quiet but audible and the steps feel even; 0% is silent. `wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.2; amixer -c0 sget PCM` shows step 122 (of 255), and `aplay -v -D front:CARD=PCH,DEV=0 /dev/zero` shows `min_dB: -40`.
 4. Suspend, three times:
    - Close the lid, wait 30 s, open it and press a key. It must not wake by itself.
    - Check with `journalctl -b -o short-unix | grep -E "PM: suspend (entry|exit)"`.

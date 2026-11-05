@@ -5,7 +5,7 @@ One script to make Linux usable on the **MacBook Pro 13" 2016 with Touch Bar (Ma
 | Component | Status after running the script |
 |---|---|
 | Audio (speakers, mic) | ✅ via [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro), set up again after sleep |
-| Volume | ✅ even 2 dB steps, audible down to the lowest settings |
+| Volume | ✅ even loudness steps, audible from 5% |
 | Touch Bar (Esc, media keys, F1–F12 with Fn) | ✅ via a patched [iBridge driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver) |
 | Ambient light sensor | ✅ (apple-ib-als) |
 | Suspend (lid close / idle / manual) | ✅ deep sleep, no instant wake-ups |
@@ -46,7 +46,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 
 **Audio**
 - After suspend to RAM the speaker amps (programmed over the codec's I2C bus) have lost their setup, and sometimes the codec has too, so the speakers stay silent until reboot. The vendored driver now runs its full codec and amp setup again on the first resume after a system sleep (a PM notifier flags the sleep; runtime power-saving resumes are left alone).
-- The driver has no hardware volume, so the slider drives alsa-lib's `PCM` software volume (-51..0 dB) through PipeWire's cubic curve: everything below about 20% is under -42 dB and inaudible on these speakers. The script sets the range to -40..0 dB (`/var/lib/alsa/cardN.conf.d/`) and has WirePlumber map the slider evenly in dB onto it (`api.alsa.ignore-dB`): 10% is -36 dB, each 5% step 2 dB, 0% silent.
+- The driver has no hardware volume, so the slider drives alsa-lib's `PCM` software volume (-51..0 dB) through PipeWire's cubic curve: everything below about 20% is under -42 dB and inaudible on these speakers. The script gives the software volume a -40..0 dB range and tells PipeWire it spans -80..0 dB (an ACP `DecibelFix` in a profile set used only for the built-in card), which halves the dB of the cubic curve: 5% is -39 dB, 10% -30 dB, 20% -21 dB, 50% -9 dB, 0% silent. Plain even dB steps (tried first) felt exponential. `alsa-restore.service` empties `/var/lib/alsa/cardN.conf.d/` at every boot, so `mbp132-volume.service` writes the files after it.
 
 **Suspend**
 - The Apple S3X NVMe and the Thunderbolt xHCI controllers fail to resume from `d3cold`, so d3cold is disabled for all PCI devices before each sleep.
@@ -78,8 +78,11 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /etc/NetworkManager/dispatcher.d/99-mbp132-wifi-powersave
 /etc/NetworkManager/conf.d/mbp132-wifi.conf
 /usr/lib/firmware/brcm/brcmfmac43602-pcie.Apple Inc.-MacBookPro13,2.txt   (Wi-Fi calibration, 13,2 only)
+/etc/systemd/system/mbp132-volume.service + /usr/local/libexec/mbp132-volume
+                                         (writes the two files below at every boot)
 /var/lib/alsa/cardN.conf.d/50-mbp132-volume.conf                         (volume range)
-/etc/wireplumber/wireplumber.conf.d/50-mbp132-volume.conf                (volume curve)
+/run/mbp132-setup/acp-default.conf                                       (volume curve)
+/etc/udev/rules.d/90-mbp132-volume.rules (points the built-in card at that curve)
 /var/lib/mbp132-setup/nvram-backup/         (only if an NVRAM file had to be moved)
 /var/lib/mbp132-setup/t1-firmware/          (backup of EFI/APPLE/EMBEDDEDOS/; kept on --uninstall)
 /usr/src/appleibridge-0.1.2                   (DKMS source, copied from drivers/apple-ibridge)
