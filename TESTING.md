@@ -32,7 +32,7 @@ reboot
    - Holding Fn shows F1–F12.
    - The brightness, volume and keyboard-backlight keys work.
    - `/var/lib/mbp132-setup/t1-firmware/combined.memboot` exists (the T1 firmware backup).
-   - With usbmuxd installed (`pacman -S usbmuxd`, then reboot), the Touch Bar still lights up and this prints `1`: `cat "$(dirname "$(grep -l 8600 /sys/bus/usb/devices/*/idProduct)")/bConfigurationValue"`.
+   - With usbmuxd installed (the script installs it; check `pacman -Q usbmuxd`), after a reboot the Touch Bar still lights up and this prints `1`: `cat "$(dirname "$(grep -l 8600 /sys/bus/usb/devices/*/idProduct)")/bConfigurationValue"`.
 3. Audio: speakers, microphone, headphone jack.
    - Run this with codec power saving on: `cat /sys/module/snd_hda_intel/parameters/power_save` must not be `0`. Remove any manual `snd_hda_intel power_save=0` option from `/etc/modprobe.d/` first, and reboot.
    - Play sound again after 2 minutes of silence; it must still work, without noise.

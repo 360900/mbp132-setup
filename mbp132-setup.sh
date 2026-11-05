@@ -12,6 +12,7 @@
 #                 hibernation is hidden
 #   - Keyboard:   optional ISO layout fix, Fn <-> left Ctrl swap and
 #                 Windows-style modifier keys with a working AltGr (KDE)
+#   - iPhone:     usbmuxd (USB tethering), without it turning the Touch Bar off
 #   - Wi-Fi:      BCM43602 defaults that work best on this board: no NVRAM file,
 #                 power saving off, no shared placeholder MAC (NetworkManager).
 #                 2.4 GHz only; 5 GHz needs calibration data nobody has yet.
@@ -170,6 +171,9 @@ check_vendored_drivers() {
 install_deps() {
     local pkgs=(dkms base-devel wget patch) k
     (( DO_WIFI )) && pkgs+=(iw)
+    # usbmuxd (iPhone tethering and file access). On T1 models it is safe only
+    # together with the iBridge udev rule that install_touchbar writes.
+    (( DO_TB || !HAS_T1 )) && pkgs+=(usbmuxd)
     for k in $(installed_kernels); do
         pkgs+=("$(cat "/usr/lib/modules/$k/pkgbase")-headers")
     done

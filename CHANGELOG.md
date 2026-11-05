@@ -11,6 +11,7 @@
 - Issue template for test reports.
 - Support for the other 2016-2017 MacBook Pros (13,1, 13,3, 14,1, 14,2, 14,3), untested. The Touch Bar driver and Wi-Fi settings are installed only if the T1 chip or a BCM43602 is present.
 - udev rule that switches the iBridge back to USB configuration 1 after usbmuxd <= 1.1.1 sets it to 0.
+- `usbmuxd` is installed as a dependency (iPhone USB tethering), except on T1 models with `--no-touchbar`, where the udev rule above is not written. Verified on the MacBookPro13,2: with usbmuxd 1.1.1-4.1 and the rule, the Touch Bar stays lit and `bConfigurationValue` is `1` after reboot (2026-11-01).
 - Backup of the T1 firmware (`EFI/APPLE/EMBEDDEDOS/`) to `/var/lib/mbp132-setup/t1-firmware/`; a T1 in recovery mode (`05ac:1281`) is reported and the Touch Bar driver skipped.
 - Hardware notes (`NOTES.md`), test checklist (`TESTING.md`), per-driver documentation (`drivers/README.md`) and the `bcmprobe.py` diagnostics tool.
 
