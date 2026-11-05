@@ -24,9 +24,12 @@ in place.
   - `apple-ib-tb.c` has a `.resume` handler. USB keeps power in s2idle, so
     the original, with only `.reset_resume`, left the Touch Bar dark after
     waking. Applied from `patches/0004-apple-ib-tb-resume-after-s2idle.patch`.
-  - `dkms.conf`: `PACKAGE_VERSION` bumped from `0.1` to `0.1.3` to mark our
-    fork (0.1.1: tb_touch fix; 0.1.2: platform driver; 0.1.3: s2idle resume),
-    so the setup script can replace older copies cleanly.
+  - From upstream PR 3 by nonderbe: `apple-ib-tb.c` no longer leaks a USB power
+    reference on every resume, and creates no touchscreen device in the keyboard
+    configuration. Applied from `patches/0005-*` and `patches/0006-*`.
+  - `dkms.conf`: `PACKAGE_VERSION` bumped from `0.1` to `0.1.4` to mark our
+    fork (0.1.1: tb_touch fix; 0.1.2: platform driver; 0.1.3: s2idle resume;
+    0.1.4: PR 3 fixes), so the setup script can replace older copies cleanly.
 
 ## snd_hda_macbookpro (Cirrus CS8409 audio)
 

@@ -95,7 +95,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /etc/udev/rules.d/90-mbp132-volume.rules (points the built-in card at that curve)
 /var/lib/mbp132-setup/nvram-backup/         (only if an NVRAM file had to be moved)
 /var/lib/mbp132-setup/t1-firmware/          (backup of EFI/APPLE/EMBEDDEDOS/; kept on --uninstall)
-/usr/src/appleibridge-0.1.3                   (DKMS source, copied from drivers/apple-ibridge)
+/usr/src/appleibridge-0.1.4                   (DKMS source, copied from drivers/apple-ibridge)
 /usr/local/src/mbp132-setup/snd_hda_macbookpro (copied from drivers/snd_hda_macbookpro)
 ```
 
@@ -105,7 +105,7 @@ Both drivers are committed to this repository under `drivers/` (via `git subtree
 
 | Driver | Upstream | Pinned commit | Local changes |
 |---|---|---|---|
-| `apple-ibridge` (Touch Bar, ALS) | [F13-Kr1pt0n/macbook-pro-touchbar-driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver), branch `touchbar-driver-hid-driver` | `ecfadc3` (2025-09-02) | `struct tb_touch` build fix, platform-driver port for Linux 7.3 and s2idle resume ([`patches/`](patches)), `PACKAGE_VERSION` bumped to `0.1.3` to mark the fork |
+| `apple-ibridge` (Touch Bar, ALS) | [F13-Kr1pt0n/macbook-pro-touchbar-driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver), branch `touchbar-driver-hid-driver` | `ecfadc3` (2025-09-02) | `struct tb_touch` build fix, platform-driver port for Linux 7.3, s2idle resume and two fixes from upstream PR 3 ([`patches/`](patches)), `PACKAGE_VERSION` bumped to `0.1.4` to mark the fork |
 | `snd_hda_macbookpro` (Cirrus CS8409 audio) | [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro), `master` | `89b22ff` (2026-09-06) | none |
 
 Both are GPL-2.0 upstream; their `LICENSE` files are kept in `drivers/*/`.
