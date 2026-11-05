@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: mbp132-setup
+Date: Thu, 5 Nov 2026 21:00:00 +0300
+Subject: [PATCH] apple-ib-tb: no MT input device in the keyboard configuration
+
+In configuration 1 nothing feeds it, so desktops see a touchscreen that never reports.
+
+Based on F13-Kr1pt0n/macbook-pro-touchbar-driver PR 3 by nonderbe, commit f6f6a7e.
+---
+diff --git a/apple-ib-tb.c b/apple-ib-tb.c
+index 1e597f6..59b01f1 100644
+--- a/apple-ib-tb.c
++++ b/apple-ib-tb.c
+@@ -1084,20 +1084,22 @@ static int appletb_probe(struct hid_device *hdev,
+ 		/* MBP14,3: set up an input device for display-mode touches.
+ 		* NOTE: This only allocates/registers the input device. You still need to
+ 		*       feed touch samples into it (see tb_handle_touch_report()).
++		* Not in the keyboard configuration (1): there it would only be a
++		* touchscreen that never reports anything.
+ 		*/
+ 		{
+ 			struct usb_interface *intf;
+ 			int rc_mt;
+ 
+ 			intf = appletb_get_usb_iface(tb_dev->disp_info.hdev);
+-			if (intf) {
++			if (!intf) {
++				dev_warn(tb_dev->log_dev,
++						"MT: no USB interface for display HID; skipping MT init\n");
++			} else if (interface_to_usbdev(intf)->actconfig->desc.bConfigurationValue != 1) {
+ 				rc_mt = tb_input_init(intf, &tb_dev->touch);
+ 				if (rc_mt)
+ 					dev_warn(tb_dev->log_dev,
+ 							"MT: input init failed: %d (display mode)\n", rc_mt);
+-			} else {
+-				dev_warn(tb_dev->log_dev,
+-						"MT: no USB interface for display HID; skipping MT init\n");
+ 			}
+ 		}
+ 		#endif
