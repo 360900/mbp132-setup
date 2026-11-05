@@ -2,6 +2,11 @@
 
 One script to make Linux usable on the **MacBook Pro 13" 2016 with Touch Bar (MacBookPro13,2)** on Arch-based distributions.
 
+> [!CAUTION]
+> **Keep the macOS EFI partition. Do not delete or format it, including when installing Linux.**
+>
+> `EFI/APPLE/EMBEDDEDOS/` on it holds the T1 chip's firmware, which the Mac loads at every power-on. Without it the **Touch Bar, camera, Touch ID and ambient light sensor stop working**, and only reinstalling macOS restores it. Back the folder up before you start.
+
 | Component | Status after running the script |
 |---|---|
 | Audio (speakers, mic) | ✅ via [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro), set up again after sleep |
