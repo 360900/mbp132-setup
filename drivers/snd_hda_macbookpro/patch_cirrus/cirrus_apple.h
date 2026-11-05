@@ -1,6 +1,7 @@
 //#include <linux/ctype.h>
 #include <linux/timer.h>
 #include <linux/bitops.h>
+#include <linux/suspend.h>
 
 #include <linux/version.h>
 
@@ -1445,9 +1446,91 @@ static int cs_8409_apple_init(struct hda_codec *codec)
 	return 0;
 }
 
+static int cs_8409_boot_setup(struct hda_codec *codec);
+
+// mbp132-setup: on a cold boot the Mac's firmware writes the subsystem id and
+// pin configs, and cs_8409_boot_setup() then programs GPIOs, the CS42L83 and
+// the speaker amps over I2C. After suspend to RAM (S3) the speaker amps have
+// always lost their setup, and sometimes the codec too (subsystem id back to
+// 0x10138409, GPIOs off), so the speakers stay silent. A runtime resume
+// (power_save) keeps everything, so redo the setup only after a system sleep
+// (flagged by a PM notifier) or when the codec registers show a power loss.
+static int cs_8409_apple_pm_notify(struct notifier_block *nb, unsigned long action, void *data)
+{
+	struct cs8409_apple_spec *spec = container_of(nb, struct cs8409_apple_spec, pm_nb);
+
+	if (action == PM_SUSPEND_PREPARE || action == PM_HIBERNATION_PREPARE)
+		spec->system_slept = true;
+	return NOTIFY_DONE;
+}
+
+static bool cs_8409_apple_lost_power(struct hda_codec *codec)
+{
+	unsigned int ssid = snd_hda_codec_read(codec, codec->core.afg, 0,
+					       AC_VERB_GET_SUBSYSTEM_ID, 0);
+
+	return ssid != codec->core.subsystem_id;
+}
+
+// HDA spec "Set Subsystem ID" bytes 0-3: verbs 0x720-0x723 (no kernel define)
+#define CS8409_APPLE_VERB_SET_SUBSYSTEM_ID_0	0x720
+
+static void cs_8409_apple_restore_firmware_setup(struct hda_codec *codec)
+{
+	const struct hda_pincfg *pin;
+	int i, b;
+
+	for (b = 0; b < 4; b++)
+		snd_hda_codec_write(codec, codec->core.afg, 0, CS8409_APPLE_VERB_SET_SUBSYSTEM_ID_0 + b,
+				    (codec->core.subsystem_id >> (8 * b)) & 0xff);
+	snd_array_for_each(&codec->init_pins, i, pin) {
+		for (b = 0; b < 4; b++)
+			snd_hda_codec_write(codec, pin->nid, 0,
+					    AC_VERB_SET_CONFIG_DEFAULT_BYTES_0 + b,
+					    (pin->cfg >> (8 * b)) & 0xff);
+	}
+}
+
+static void cs_8409_apple_redo_boot_setup(struct hda_codec *codec)
+{
+	struct cs8409_apple_spec *spec = codec->spec;
+
+	cs_8409_apple_restore_firmware_setup(codec);
+
+	// same starting state as in cs8409_apple() before cs_8409_boot_setup()
+	spec->block_unsol = 0;
+	spec->jack_present = 0;
+	spec->headset_type = 0;
+	spec->have_mike = 0;
+	spec->have_buttons = 0;
+	spec->playing = 0;
+	spec->capturing = 0;
+	spec->headset_play_format_setup_needed = 1;
+	spec->headset_capture_format_setup_needed = 1;
+	spec->headset_presetup_done = 0;
+	spec->headset_phase = 0;
+	spec->headset_enable = 0;
+
+	if (cs_8409_boot_setup(codec) < 0)
+		codec_err(codec, "cs8409: codec setup after resume failed\n");
+
+	spec->headset_phase = 2;
+	spec->play_init = 0;
+	spec->capture_init = 0;
+	spec->play_init_count = 0;
+	spec->capture_init_count = 0;
+}
+
 static int cs_8409_apple_resume(struct hda_codec *codec)
 {
+	struct cs8409_apple_spec *spec = codec->spec;
+
         myprintk("snd_hda_intel: cs_8409_apple_resume\n");
+	if (spec->system_slept || cs_8409_apple_lost_power(codec)) {
+		codec_info(codec, "cs8409: setting up codec and amps again after sleep\n");
+		spec->system_slept = false;
+		cs_8409_apple_redo_boot_setup(codec);
+	}
         // code copied from default resume ops
         snd_hda_codec_init(codec);       
 	snd_hda_regmap_sync(codec);
@@ -1761,6 +1844,10 @@ void cs_8409_apple_remove(struct hda_codec *codec)
 
 	//del_timer(&cs_8409_hp_timer);
 
+	struct cs8409_apple_spec *spec = codec->spec;
+
+	if (spec->pm_nb.notifier_call)
+		unregister_pm_notifier(&spec->pm_nb);
 	snd_hda_gen_remove(codec);
 }
 
@@ -3142,6 +3229,9 @@ static int cs8409_apple(struct hda_codec *codec)
 #endif
 
 
+
+       spec->pm_nb.notifier_call = cs_8409_apple_pm_notify;
+       register_pm_notifier(&spec->pm_nb);
 
        err = cs_8409_boot_setup(codec);
        if (err < 0)

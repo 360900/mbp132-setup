@@ -425,7 +425,7 @@
  	unsigned int suspended:1;
  	unsigned int paged:1;
  	unsigned int last_page;
-@@ -342,6 +368,129 @@
+@@ -342,6 +368,133 @@
  	unsigned int init_done:1;
  	unsigned int build_ctrl_done:1;
  
@@ -547,6 +547,10 @@
 +       // some initial plays that I dont understand - so skip any setup
 +       // till sometime after the first play
 +       struct timespec64 first_play_time;
++
++       // mbp132-setup: set when the system goes to sleep, see cs_8409_apple_resume()
++       struct notifier_block pm_nb;
++       bool system_slept;
 +
 +
 +#endif

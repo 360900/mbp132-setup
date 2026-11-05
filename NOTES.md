@@ -42,10 +42,17 @@ Test system: CachyOS, kernel 7.2.x (LTS 6.18 also installed), GRUB, mkinitcpio w
 
 | Setup | Result |
 |---|---|
-| No NVRAM file | Best result. Good 2.4 GHz link. The firmware reports only the 2.4 GHz band (`WLC_GET_BANDLIST`). The MAC is Broadcom's placeholder `00:90:4c:0d:f4:3e`. |
-| NVRAM files shared online (MikeRatcliffe gist; kernel bug 193121, comment 81) | These are boardtype `0x61b`, for MacBookPro13,3. On 13,2: association timeouts or "ssid-not-found", with every txchain/rxchain variant, with the placeholder MAC and with the real MAC. |
-| Minimal NVRAM (`ccode` only), fixed `txpower`, `iw reg set XX` | No 5 GHz band. |
+| No NVRAM file | Good 2.4 GHz link (1.4-2.0 MB/s), no 5 GHz band (`WLC_GET_BANDLIST`). The MAC is Broadcom's placeholder `00:90:4c:0d:f4:3e`. |
+| Bugzilla 193121 attachment 290569 + comment 97, real MAC, `ccode=TR regrev=1` (shipped as `firmware/brcmfmac43602-pcie.txt.in`) | **Best result** (2026-11-01, kernel 7.3.1). 2.4 GHz: -43 dBm instead of -54, 6.5-7.0 MB/s. 5 GHz: ch 40 and radar ch 56, 80 MHz VHT, link rate up to 702 Mbit/s, ~40 MB/s from one server. |
+| Same with `ccode=00` or `X3/245` (the SROM's value, not in this firmware's table) | The firmware falls back to the system country at revision 0. For TR/0: 52-64 passive, every join there fails at once (status 16, NetworkManager then asks for the password); 100-140 off. |
+| Same with the SROM's own `boardflags3=0xa000005` | Firmware crash ("Dongle setup failed"). |
+| Own SROM decoded (signature 0x9999, rev 12) | Firmware crash; the decoder's rev-12 layout is wrong for some fields. |
+| Other NVRAM files shared online (MikeRatcliffe gist; bug 193121, comment 81) | On 13,2: association timeouts or "ssid-not-found". |
 | Power saving on | Slow, laggy link. It must be off. |
+
+- **Country:** brcmfmac pushes the system's regulatory country to the firmware at revision 0, unless the firmware already has that country (from the NVRAM `ccode`), so the NVRAM's `regrev` survives only when `ccode` matches the system's country. The firmware's table (no `clm_blob` for 43602): `TR/0`: 36-48 normal, 52-64 radar+passive, 100-165 off. `TR/1`, `DE/0`, `GB/0`, `JP/0`, `X3/0`: 52-140 radar. `US/0` adds 149-165. Read and set with brcmfmac's nl80211 vendor dcmd (`country` and `per_chan_info` iovars).
+- **Width:** the chip does 80 MHz at most. With a router on 160 MHz (36-64) it joined at 40 MHz on ch 40 (TR/0) but at 80 MHz on ch 56 (TR/1).
+- Do not send `WLC_DOWN`/`WLC_UP` from user space: the firmware comes back with `vhtmode=0` (802.11n only) until brcmfmac is reloaded.
 
 Ruled-out sources for the board's own calibration data:
 
@@ -54,12 +61,12 @@ Ruled-out sources for the board's own calibration data:
   - `BroadcomWirelessWin8x64.exe` is a RAR self-extracting archive. Inside, `bcmwl63a.sys` (2016) runs the chip in BMAC mode with an embedded 43602 BMAC firmware.
   - It contains no NVRAM text, only `name=%x`-style format strings. Its INF matches `DEV_43BA` without a board-specific `SUBSYS_0157106B`.
   - The six driver versions on a Boot Camp Windows install are the same in this respect.
-- **On-chip:** the ChipCommon SROM/OTP window (`0x800`–`0xFFF`) is almost blank. It holds no board ID and no MAC, and the firmware finds no board data either (hence the placeholder MAC).
+- **On-chip:** the ChipCommon shadow window (`0x800`–`0xFFF`) is almost blank and the FullMAC firmware finds no board data (hence the placeholder MAC). The external SPROM, read indirectly, holds a valid image: signature 0x9999, 1024 words, CRC OK, sromrev 12, boardtype 0x157, the real MAC, `ccode=X3 regrev=245`. Decoding it into NVRAM text still crashes the firmware.
 
-Remaining route to 5 GHz:
+The shipped file is a MacBookPro14,3's calibration, not this board's. Routes to the board's own:
 
+- Fix the SROM decoder for the 0x9999 / rev-12 layout (the dump itself is valid, CRC OK, real MAC found).
 - Record the NVRAM that the Windows driver writes to the chip, using a Windows VM with the card passed through over VFIO and a QEMU MMIO-write trace (the "sonals" method).
-- A MacBookPro13,2 owner (bgausden, in a GitHub gist) reported 5 GHz working with a calibrated board-`0x157` file obtained that way. It has not been tested on this machine.
 
 Never commit Apple or Broadcom files, or data extracted from them, to this repository.
 

@@ -5,7 +5,9 @@
 # the Touch Bar and Wi-Fi parts are installed only where that hardware exists.
 #
 # What it sets up:
-#   - Audio:      Cirrus CS8409 driver (davidjo/snd_hda_macbookpro), via DKMS
+#   - Audio:      Cirrus CS8409 driver (davidjo/snd_hda_macbookpro), via DKMS,
+#                 set up again after sleep; volume slider with even steps
+#                 that stay audible at low settings
 #   - Touch Bar:  iBridge / Touch Bar / ambient light sensor driver, via DKMS,
 #                 with the fixes needed on 6.15+ / 7.x kernels
 #   - Sleep:      reliable suspend (deep / S3), USB-C ports survive sleep;
@@ -13,11 +15,12 @@
 #   - Keyboard:   optional ISO layout fix, Fn <-> left Ctrl swap and
 #                 Windows-style modifier keys with a working AltGr (KDE)
 #   - iPhone:     usbmuxd (USB tethering), without it turning the Touch Bar off
-#   - Wi-Fi:      BCM43602 defaults that work best on this board: no NVRAM file,
-#                 power saving off, no shared placeholder MAC (NetworkManager).
-#                 2.4 GHz only; 5 GHz needs calibration data nobody has yet.
+#   - Wi-Fi:      BCM43602 calibration file (MacBookPro13,2): 2.4 GHz and all
+#                 5 GHz channels allowed in your country (radar channels
+#                 included), 80 MHz 802.11ac; power saving off. Other BCM43602
+#                 models: no calibration file, 2.4 GHz only.
 #
-# Tested on: MacBookPro13,2, CachyOS, kernel 7.2.9 (GRUB, mkinitcpio, systemd).
+# Tested on: MacBookPro13,2, CachyOS, kernel 7.3.1 (GRUB, mkinitcpio, systemd).
 #
 # The script runs from a clone of this repository: it installs the drivers
 # vendored under drivers/ instead of cloning anything at install time.
@@ -32,8 +35,11 @@
 #   --no-touchbar    skip the Touch Bar driver
 #   --no-sleep       skip the suspend fixes
 #   --no-wifi        skip the Wi-Fi settings
-#   --wifi-mac MAC   use this Wi-Fi MAC address (e.g. the one macOS shows)
-#                    instead of a stable per-network address
+#   --wifi-mac MAC   the Mac's real Wi-Fi MAC address (macOS: ifconfig en0);
+#                    without it a stable made-up address is used
+#   --wifi-country CC[/REV]
+#                    Wi-Fi country, e.g. TR (default: the system's regulatory
+#                    country); REV picks a firmware table revision
 #   --force          run on a model that is not a 2016-2017 MacBook Pro
 #   --uninstall      remove everything this script installed
 #   --report         write a hardware/driver report for bug reports (any
@@ -74,11 +80,18 @@ F_WIFI_DISPATCH=/etc/NetworkManager/dispatcher.d/99-mbp132-wifi-powersave
 F_WIFI_NMCONF=/etc/NetworkManager/conf.d/mbp132-wifi.conf
 FW_BRCM_DIR=/usr/lib/firmware/brcm
 WIFI_BACKUP=/var/lib/mbp132-setup/nvram-backup
+WIFI_NVRAM_TEMPLATE="$SCRIPT_DIR/firmware/brcmfmac43602-pcie.txt.in"
+F_WP_VOLUME=/etc/wireplumber/wireplumber.conf.d/50-mbp132-volume.conf
+ALSA_VOLUME_NAME=50-mbp132-volume.conf   # in /var/lib/alsa/cardN.conf.d/
+# Models whose BCM43602 calibration file (firmware/) has been tested.
+WIFI_NVRAM_MODELS=" MacBookPro13,2 "
+# Firmware country revisions that open more 5 GHz channels than revision 0.
+declare -A WIFI_COUNTRY_REV=([TR]=1)
 XKB_OPTIONS="altwin:swap_lalt_lwin,lv3:rwin_switch"
 MARKER="# Installed by mbp132-setup.sh"
 
 DO_AUDIO=1 DO_TB=1 DO_SLEEP=1 DO_WIFI=1 OPT_ISO=0 OPT_FNSWAP=0 OPT_WINKEYS=0 FORCE=0 UNINSTALL=0 REPORT=0
-WIFI_MAC=""
+WIFI_MAC="" WIFI_COUNTRY=""
 HAS_T1=0 T1_RECOVERY=0 HAS_BCM43602=0
 
 # ----------------------------------------------------------------- helpers --
@@ -237,6 +250,57 @@ install_audio() {
                 || warn "Audio driver failed to build for kernel $k"
         fi
     done
+
+    install_volume
+}
+
+# Volume: the driver has no hardware volume, so the slider drives alsa-lib's
+# "PCM" software volume (-51..0 dB). PipeWire maps the slider onto it with a
+# cubic curve, which puts everything below ~20% under -42 dB: inaudible on
+# these speakers. Use a -40..0 dB range and map the slider evenly in dB onto
+# it (ignore-dB), so each 5% step is 2 dB and 0% is still silent.
+pch_card() { # index of the Intel HDA (PCH) sound card
+    local f
+    for f in /proc/asound/card*/id; do
+        [[ "$(cat "$f")" == PCH ]] && { basename "$(dirname "$f")" | tr -dc 0-9; return 0; }
+    done
+    return 1
+}
+
+install_volume() {
+    local card pci
+    if ! card="$(pch_card)"; then
+        warn "No Intel HDA sound card found; skipping the volume settings (run again after a reboot)."
+        return 0
+    fi
+    pci="$(basename "$(readlink -f "/sys/class/sound/card$card/device")")"
+    write_file "/var/lib/alsa/card$card.conf.d/$ALSA_VOLUME_NAME" 644 <<'EOF'
+# Installed by mbp132-setup.sh
+# Analog output volume: -40..0 dB (alsa-lib's default is -51..0 dB)
+pcm.front.!0 {
+	@args [ CARD ]
+	@args.CARD { type string }
+	type asym
+	playback.pcm {
+		type softvol
+		slave.pcm { type hw card $CARD subdevice 0 }
+		control { name "PCM Playback Volume" card $CARD }
+		min_dB -40.0
+	}
+	capture.pcm { type hw card $CARD }
+}
+EOF
+    write_file "$F_WP_VOLUME" 644 <<EOF
+$MARKER
+# Map the volume slider evenly in dB onto the -40..0 dB software volume, so
+# low settings stay audible.
+monitor.alsa.rules = [
+  {
+    matches = [ { device.name = "alsa_card.pci-${pci//:/_}" } ]
+    actions = { update-props = { api.alsa.ignore-dB = true } }
+  }
+]
+EOF
 }
 
 # --------------------------------------------------------------- touch bar --
@@ -441,12 +505,62 @@ EOF
 
 # ------------------------------------------------------------------- wi-fi --
 # Findings on MacBookPro13,2 (board 0x157, subsystem 106b:0157):
-#  - NVRAM files shared online are for other boards (e.g. MacBookPro13,3,
-#    boardtype 0x61b). On this board they make association fail.
-#  - With no NVRAM file the firmware falls back to its own defaults: a good
-#    2.4 GHz link, no 5 GHz band, and Broadcom's placeholder MAC
-#    00:90:4c:0d:f4:3e, which is identical on every such machine.
+#  - With no NVRAM file the firmware falls back to its own defaults: 2.4 GHz
+#    only and Broadcom's placeholder MAC 00:90:4c:0d:f4:3e, which is identical
+#    on every such machine.
+#  - firmware/brcmfmac43602-pcie.txt.in (bugzilla 290569, see firmware/README.md)
+#    gives both bands and 80 MHz 802.11ac. Its country must be one the
+#    firmware knows, with the right revision: TR/0 leaves 100-140 off and makes
+#    52-64 passive (joining a router there fails at once), TR/1 allows 52-140.
+#    brcmfmac keeps the file's country if it matches the system's.
+#  - Other generic 43602 NVRAM files shared online make association fail.
 #  - Power saving makes the link slow and laggy.
+validate_wifi_country() {
+    local cc=${WIFI_COUNTRY%%/*} rev=
+    [[ $WIFI_COUNTRY == */* ]] && rev=${WIFI_COUNTRY#*/}
+    cc=${cc^^}
+    [[ $cc =~ ^[A-Z]{2}$ ]] || die "--wifi-country: '$WIFI_COUNTRY' is not a country code (e.g. TR or TR/1)."
+    [[ -z $rev || $rev =~ ^[0-9]+$ ]] || die "--wifi-country: revision '$rev' is not a number."
+    WIFI_COUNTRY=$cc${rev:+/$rev}
+}
+
+# Country for the Wi-Fi firmware as CC/REV: --wifi-country, else the system's
+# regulatory country (iw reg get), else DE.
+wifi_country() {
+    local cc=${WIFI_COUNTRY%%/*} rev=
+    [[ $WIFI_COUNTRY == */* ]] && rev=${WIFI_COUNTRY#*/}
+    if [[ -z $cc ]]; then
+        cc="$(iw reg get 2>/dev/null | sed -n '1,/^phy/s/^country \([A-Z][A-Z]\):.*/\1/p' | head -n1)"
+        if [[ -z $cc ]]; then
+            cc=DE
+            warn "Wi-Fi: the system has no regulatory country set; using $cc. Pass --wifi-country CC for yours."
+        fi
+    fi
+    echo "$cc/${rev:-${WIFI_COUNTRY_REV[$cc]:-0}}"
+}
+
+# Stable, locally administered MAC from the machine id (used without --wifi-mac).
+derived_wifi_mac() {
+    local h
+    h="$( { cat /etc/machine-id; echo mbp132-wifi; } | sha256sum | cut -c1-10)"
+    printf '02:%s:%s:%s:%s:%s\n' "${h:0:2}" "${h:2:2}" "${h:4:2}" "${h:6:2}" "${h:8:2}"
+}
+
+wifi_nvram_file() { echo "$FW_BRCM_DIR/brcmfmac43602-pcie.Apple Inc.-$(cat /sys/class/dmi/id/product_name 2>/dev/null).txt"; }
+
+install_wifi_nvram() {
+    local f mac cc
+    f="$(wifi_nvram_file)"
+    mac=${WIFI_MAC:-$(derived_wifi_mac)}
+    cc="$(wifi_country)"
+    { echo "$MARKER (firmware/brcmfmac43602-pcie.txt.in)"
+      sed -e "s/@MACADDR@/$mac/" -e "s/@CCODE@/${cc%/*}/" -e "s/@REGREV@/${cc#*/}/" "$WIFI_NVRAM_TEMPLATE"
+    } | write_file "$f" 644
+    log "Wi-Fi calibration: MAC $mac, country ${cc%/*} revision ${cc#*/}"
+    [[ -z $WIFI_MAC ]] && warn "No --wifi-mac given; using the made-up address $mac (macOS shows the real one: ifconfig en0)."
+    return 0
+}
+
 validate_wifi_mac() {
     local mac=${WIFI_MAC,,}
     [[ $mac =~ ^([0-9a-f]{2}:){5}[0-9a-f]{2}$ ]] || die "--wifi-mac: '$WIFI_MAC' is not a MAC address (format aa:bb:cc:dd:ee:ff)."
@@ -457,9 +571,11 @@ validate_wifi_mac() {
 
 install_wifi() {
     log "Wi-Fi: BCM43602 settings"
-    local f
+    local f model
+    model="$(cat /sys/class/dmi/id/product_name 2>/dev/null)"
     shopt -s nullglob
     for f in "$FW_BRCM_DIR"/brcmfmac43602-pcie*.txt "$FW_BRCM_DIR"/brcmfmac43602-pcie*.txt.{xz,zst}; do
+        grep -qsF "$MARKER" "$f" && continue # ours, rewritten below
         if pacman -Qqo "$f" >/dev/null 2>&1; then
             warn "$f belongs to package '$(pacman -Qqo "$f")'; leaving it. If Wi-Fi fails, remove that package."
             continue
@@ -469,6 +585,12 @@ install_wifi() {
         warn "Moved $f to $WIFI_BACKUP/ (NVRAM files made for other boards break Wi-Fi on this model)."
     done
     shopt -u nullglob
+
+    if [[ $WIFI_NVRAM_MODELS == *" $model "* ]]; then
+        install_wifi_nvram
+    else
+        log "No tested Wi-Fi calibration file for $model; Wi-Fi stays 2.4 GHz only."
+    fi
 
     if [[ ! -d /etc/NetworkManager ]]; then
         warn "NetworkManager not found; skipping the power-saving and MAC settings."
@@ -484,13 +606,13 @@ exit 0
 EOF
     systemctl enable NetworkManager-dispatcher.service >/dev/null 2>&1 || true
 
-    local mac_value=stable mac_note="a stable address per network instead of the shared placeholder"
+    local mac_value=stable mac_note="a stable address per network (privacy, and never the shared placeholder)"
     if [[ -n "$WIFI_MAC" ]]; then
         mac_value=$WIFI_MAC mac_note="the address given with --wifi-mac"
     fi
     write_file "$F_WIFI_NMCONF" 644 <<EOF
 $MARKER
-# Without an NVRAM file the BCM43602 reports Broadcom's placeholder MAC
+# Without a calibration file the BCM43602 reports Broadcom's placeholder MAC
 # (00:90:4c:0d:f4:3e), the same on every machine. Use ${mac_note}.
 [connection-mbp132-wifi]
 match-device=driver:brcmfmac
@@ -577,7 +699,8 @@ report_body() {
 
     printf '\n## Files installed by this script\n'
     for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
-             "$F_SLEEPCONF" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$T1_BACKUP"; do
+             "$F_SLEEPCONF" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_WP_VOLUME" "$(wifi_nvram_file)" \
+             "$T1_BACKUP"; do
         [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
     done
 
@@ -604,7 +727,12 @@ report() {
 uninstall() {
     log "Removing everything installed by this script"
     rm -f "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
-          "$F_SLEEPCONF" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"
+          "$F_SLEEPCONF" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_WP_VOLUME" \
+          /var/lib/alsa/card*.conf.d/"$ALSA_VOLUME_NAME"
+    rmdir /var/lib/alsa/card*.conf.d 2>/dev/null || true
+    local nv
+    nv="$(wifi_nvram_file)"
+    grep -qsF "$MARKER" "$nv" && rm -f "$nv" && log "Removed $nv"
     [[ -d "$T1_BACKUP" ]] && log "Keeping the T1 firmware backup in $T1_BACKUP"
     if [[ -d "$WIFI_BACKUP" ]]; then
         local f
@@ -654,6 +782,8 @@ while (( $# )); do
         --no-wifi)      DO_WIFI=0 ;;
         --wifi-mac)     [[ $# -ge 2 ]] || die "--wifi-mac needs an address"; WIFI_MAC=$2; shift ;;
         --wifi-mac=*)   WIFI_MAC=${1#*=} ;;
+        --wifi-country) [[ $# -ge 2 ]] || die "--wifi-country needs a country code"; WIFI_COUNTRY=$2; shift ;;
+        --wifi-country=*) WIFI_COUNTRY=${1#*=} ;;
         --force)        FORCE=1 ;;
         --uninstall)    UNINSTALL=1 ;;
         --report)       REPORT=1 ;;
@@ -667,7 +797,9 @@ if (( REPORT )); then report; exit 0; fi
 preflight
 if (( UNINSTALL )); then uninstall; exit 0; fi
 [[ -n "$WIFI_MAC" ]] && validate_wifi_mac
+[[ -n "$WIFI_COUNTRY" ]] && validate_wifi_country
 check_vendored_drivers
+[[ -f "$WIFI_NVRAM_TEMPLATE" ]] || die "Missing $WIFI_NVRAM_TEMPLATE. Run this script from a clone of the repository (see README.md)."
 
 detect_hardware
 if (( HAS_T1 )); then
@@ -702,7 +834,8 @@ After rebooting:
 Tips:
   - Double or missed keystrokes: KDE System Settings > Accessibility >
     Keyboard Filters > Bounce keys (~40 ms).
-  - BCM43602 Wi-Fi (Touch Bar models): 2.4 GHz only. For 5 GHz use a USB adapter (e.g. MediaTek MT7921AU).
+  - Wi-Fi (MacBookPro13,2): 2.4 and 5 GHz incl. radar channels, 80 MHz max (the chip has no 160 MHz).
+    Other BCM43602 models: 2.4 GHz only so far.
   - Never delete or reformat the EFI partition: EFI/APPLE/EMBEDDEDOS/ holds the Touch Bar firmware.
   - Something broken? Run  sudo ./mbp132-setup.sh --report  and attach the file to an issue.
 EOF

@@ -4,15 +4,16 @@ One script to make Linux usable on the **MacBook Pro 13" 2016 with Touch Bar (Ma
 
 | Component | Status after running the script |
 |---|---|
-| Audio (speakers, mic) | ✅ via [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro) |
+| Audio (speakers, mic) | ✅ via [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro), set up again after sleep |
+| Volume | ✅ even 2 dB steps, audible down to the lowest settings |
 | Touch Bar (Esc, media keys, F1–F12 with Fn) | ✅ via a patched [iBridge driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver) |
 | Ambient light sensor | ✅ (apple-ib-als) |
 | Suspend (lid close / idle / manual) | ✅ deep sleep, no instant wake-ups |
 | USB-C ports after sleep | ✅ Thunderbolt driver is reloaded around sleep |
 | Windows-style modifiers + AltGr (KDE) | ✅ optional, `--windows-keys` |
 | Hibernation | ❌ hidden; it does not resume on this model |
-| Wi-Fi (BCM43602), 2.4 GHz | ✅ stable link, power saving off, no shared placeholder MAC |
-| Wi-Fi (BCM43602), 5 GHz | ❌ no calibration data for this board yet; use a USB adapter (e.g. MediaTek MT7921AU) |
+| Wi-Fi (BCM43602), 2.4 GHz | ✅ calibration file, power saving off |
+| Wi-Fi (BCM43602), 5 GHz | ✅ on the 13,2: all channels your country allows, radar channels included, 80 MHz 802.11ac (the chip has no 160 MHz). Other models: not yet |
 | Touch ID | ❌ |
 
 Tested on CachyOS, kernel 7.2.9, GRUB + mkinitcpio + systemd.
@@ -28,7 +29,7 @@ reboot
 
 Both drivers are vendored in this repository (`drivers/`); the script installs them from the local tree and clones nothing from GitHub. See [Vendored drivers](#vendored-drivers).
 
-Options: `--iso`, `--fn-ctrl-swap`, `--windows-keys`, `--wifi-mac MAC`, `--no-audio`, `--no-touchbar`, `--no-sleep`, `--no-wifi`, `--force`, `--uninstall`, `--report`. Run `--help` for details.
+Options: `--iso`, `--fn-ctrl-swap`, `--windows-keys`, `--wifi-mac MAC`, `--wifi-country CC[/REV]`, `--no-audio`, `--no-touchbar`, `--no-sleep`, `--no-wifi`, `--force`, `--uninstall`, `--report`. Run `--help` for details.
 
 Other 2016-2017 MacBook Pros (13,1, 13,3, 14,1, 14,2, 14,3) are supported but untested. The Touch Bar and Wi-Fi parts are installed only where that hardware exists. To help, run `sudo ./mbp132-setup.sh --report` (works on any model, changes nothing) and open a [test report](https://github.com/360900/mbp132-setup/issues/new?template=test-report.yml).
 
@@ -43,16 +44,21 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 - usbmuxd up to 1.1.1 (the version Arch ships) switches the iBridge to USB configuration 0, which turns off the Touch Bar, camera and light sensor. A udev rule switches it back to 1, so the script installs usbmuxd (needed for iPhone USB tethering) along with it.
 - At every power-on the Mac loads the T1 chip's firmware from `EFI/APPLE/EMBEDDEDOS/` on the EFI partition. Without it the T1 shows up as `05ac:1281` (recovery mode) and the Touch Bar, camera, Touch ID and light sensor stop working; only reinstalling macOS restores it. The script backs that folder up to `/var/lib/mbp132-setup/t1-firmware/`. **Never delete or reformat the EFI partition.**
 
+**Audio**
+- After suspend to RAM the speaker amps (programmed over the codec's I2C bus) have lost their setup, and sometimes the codec has too, so the speakers stay silent until reboot. The vendored driver now runs its full codec and amp setup again on the first resume after a system sleep (a PM notifier flags the sleep; runtime power-saving resumes are left alone).
+- The driver has no hardware volume, so the slider drives alsa-lib's `PCM` software volume (-51..0 dB) through PipeWire's cubic curve: everything below about 20% is under -42 dB and inaudible on these speakers. The script sets the range to -40..0 dB (`/var/lib/alsa/cardN.conf.d/`) and has WirePlumber map the slider evenly in dB onto it (`api.alsa.ignore-dB`): 10% is -36 dB, each 5% step 2 dB, 0% silent.
+
 **Suspend**
 - The Apple S3X NVMe and the Thunderbolt xHCI controllers fail to resume from `d3cold`, so d3cold is disabled for all PCI devices before each sleep.
 - Instant wake-ups come from ACPI wake sources: the lid sensor `LID0`, the USB controllers `XHC*`, Wi-Fi `ARPT`, and the PCIe root ports `RP*` (`RP01/05/09/12` on the 13,2; the names differ per model). These are disabled before each sleep; keyboard/trackpad wake (`SPIT`) stays on. Because the lid sensor can't wake it, open the lid and **press a key** to wake.
 - The Thunderbolt driver's suspend/resume fails, and the USB-C ports' USB controllers vanish until reboot. The sleep hook unloads `thunderbolt` before sleep and loads it again after waking.
 
 **Wi-Fi (BCM43602, board 0x157)**
-- The `brcmfmac43602-pcie.txt` NVRAM files shared online were made for other boards (for example MacBookPro13,3, boardtype `0x61b`). On this board they make connecting fail, so the script moves any such file to `/var/lib/mbp132-setup/nvram-backup/`. Without one, the firmware uses built-in defaults: a good 2.4 GHz link and no 5 GHz band.
-- Power saving makes the link slow and laggy; a NetworkManager dispatcher script turns it off.
-- Without an NVRAM file the chip reports Broadcom's placeholder MAC `00:90:4c:0d:f4:3e`, identical on every machine. NetworkManager is set to use a stable per-network address instead, or the address you pass with `--wifi-mac` (macOS shows the real one with `ifconfig en0 | grep ether`).
-- 5 GHz needs this board's calibration data. Apple's Boot Camp drivers don't contain it as text, and it isn't readable from the chip directly. Recording it from the Windows driver in a virtual machine is the remaining option.
+- Without a calibration (NVRAM) file the firmware uses built-in defaults: 2.4 GHz only, and Broadcom's placeholder MAC `00:90:4c:0d:f4:3e`, identical on every machine.
+- On the 13,2 the script installs [firmware/brcmfmac43602-pcie.txt.in](firmware/README.md) as `brcmfmac43602-pcie.Apple Inc.-MacBookPro13,2.txt`, with your MAC (`--wifi-mac`; macOS shows it with `ifconfig en0 | grep ether`, otherwise a stable made-up one) and your country. Measured on one 13,2: 2.4 GHz download 1.4-2.0 → 6.5-7.0 MB/s; 5 GHz 80 MHz 802.11ac, link rate up to 702 Mbit/s, ~40 MB/s download.
+- The country revision decides which 5 GHz channels work. For Turkey, revision 0 leaves 100-140 off and makes 52-64 passive, so joining a router on a radar channel fails at once (NetworkManager then asks for the password again, which is fine). `TR/1` allows 52-140. The script picks the system's regulatory country and a known-better revision (`--wifi-country CC/REV` overrides). brcmfmac keeps the file's country when it matches the system's.
+- Other `brcmfmac43602-pcie.txt` files shared online (made for other boards) make connecting fail, so the script moves them to `/var/lib/mbp132-setup/nvram-backup/`.
+- Power saving makes the link slow and laggy; a NetworkManager dispatcher script turns it off. NetworkManager uses a stable per-network MAC, or the address given with `--wifi-mac`.
 
 **Keyboard (`--windows-keys`, KDE Plasma)**
 - XKB options `altwin:swap_lalt_lwin,lv3:rwin_switch`. The left keys become Ctrl, Fn, Win, Alt (in Windows order), and right Command and right Option both act as AltGr. Swapping Alt/Win on *both* sides (`altwin:swap_alt_win`) removes AltGr, because right Option is Linux's AltGr on Mac keyboards. Ctrl+Alt as AltGr is Windows-only and not possible with XKB.
@@ -71,6 +77,9 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /etc/xdg/kxkbrc                             (only with --windows-keys, if not already present)
 /etc/NetworkManager/dispatcher.d/99-mbp132-wifi-powersave
 /etc/NetworkManager/conf.d/mbp132-wifi.conf
+/usr/lib/firmware/brcm/brcmfmac43602-pcie.Apple Inc.-MacBookPro13,2.txt   (Wi-Fi calibration, 13,2 only)
+/var/lib/alsa/cardN.conf.d/50-mbp132-volume.conf                         (volume range)
+/etc/wireplumber/wireplumber.conf.d/50-mbp132-volume.conf                (volume curve)
 /var/lib/mbp132-setup/nvram-backup/         (only if an NVRAM file had to be moved)
 /var/lib/mbp132-setup/t1-firmware/          (backup of EFI/APPLE/EMBEDDEDOS/; kept on --uninstall)
 /usr/src/appleibridge-0.1.2                   (DKMS source, copied from drivers/apple-ibridge)
