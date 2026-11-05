@@ -17,9 +17,13 @@ in place.
     (`apple-ib-tb.c`). Kernels 6.15+ fail to build the original layout with
     "field has incomplete type". Applied from
     `patches/0001-apple-ib-tb-define-struct-tb_touch-before-struct-app.patch`.
-  - `dkms.conf`: `PACKAGE_VERSION` bumped from `0.1` to `0.1.1` to mark our
-    fork, so the setup script can replace any `0.1` copy from older script
-    versions cleanly.
+  - `apple-ibridge.c` binds as a `platform_driver` (ACPI match `APP7777`)
+    instead of an `acpi_driver`. Linux 7.3 removed `struct acpi_driver`, so
+    the original fails to build there. Applied from
+    `patches/0002-apple-ibridge-bind-as-a-platform-driver-for-Linux-7.3.patch`.
+  - `dkms.conf`: `PACKAGE_VERSION` bumped from `0.1` to `0.1.2` to mark our
+    fork (0.1.1: tb_touch fix; 0.1.2: platform driver), so the setup script
+    can replace older copies cleanly.
 
 ## snd_hda_macbookpro (Cirrus CS8409 audio)
 

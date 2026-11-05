@@ -20,6 +20,7 @@
 - Applied the `struct tb_touch` build fix to the vendored driver as a committed patch and bumped `PACKAGE_VERSION` to `0.1.1` to mark the fork.
 
 ### Fixed
+- Touch Bar driver failed to build on Linux 7.3 (`struct acpi_driver` was removed). `apple-ibridge` now binds as a platform driver to the `APP7777` device the ACPI core creates; `PACKAGE_VERSION` bumped to `0.1.2`. Found on the MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-01).
 - `tb_dkms_versions()` now also matches DKMS versions in the `added` (not yet built) state, so they are removed together with their stale `/usr/src` copies instead of staying registered.
 - Driver copies under `/usr/src` and `/usr/local/src` are chowned to `root:root` instead of keeping the invoking user's ownership (root builds and runs that code later).
 - A stale `/usr/src/snd_hda_macbookpro-0.1` symlink left by a manual install of davidjo's script is replaced before the audio install, so DKMS builds from the system copy, not the user's old clone.

@@ -43,6 +43,7 @@
  */
 
 #include <linux/acpi.h>
+#include <linux/platform_device.h>
 #include <linux/device.h>
 #include <linux/hid.h>
 #include <linux/list.h>
@@ -917,12 +918,13 @@ static const struct hid_driver appleib_hid_driver = {
 #endif
 };
 
-static struct appleib_device *appleib_alloc_device(struct acpi_device *acpi_dev)
+static struct appleib_device *appleib_alloc_device(struct device *dev,
+						   struct acpi_device *acpi_dev)
 {
 	struct appleib_device *ib_dev;
 	acpi_status sts;
 
-	ib_dev = devm_kzalloc(&acpi_dev->dev, sizeof(*ib_dev), GFP_KERNEL);
+	ib_dev = devm_kzalloc(dev, sizeof(*ib_dev), GFP_KERNEL);
 	if (!ib_dev)
 		return ERR_PTR(-ENOMEM);
 
@@ -951,11 +953,16 @@ static struct appleib_device *appleib_alloc_device(struct acpi_device *acpi_dev)
 	return ib_dev;
 }
 
-static int appleib_probe(struct acpi_device *acpi)
+static int appleib_probe(struct platform_device *pdev)
 {
+	struct acpi_device *acpi = ACPI_COMPANION(&pdev->dev);
 	struct appleib_device *ib_dev;
 	int i;
 	int ret;
+
+	if (!acpi)
+		return -ENODEV;
+
 	  /* MBP14,3: parse params at probe; avoid extra module_init */
         apple_tb_mode = appleib_parse_tb_mode_param();
         apple_ib_prefer_binding = prefer_apple_ib;
@@ -963,7 +970,7 @@ static int appleib_probe(struct acpi_device *acpi)
                dev_info(&acpi->dev, "MBP14,3 TB coordinator: tb_mode=%s prefer_apple_ib=%d\n", tb_mode_param ? tb_mode_param : "auto", prefer_apple_ib);
         #endif
 
-	ib_dev = appleib_alloc_device(acpi);
+	ib_dev = appleib_alloc_device(&pdev->dev, acpi);
 	if (IS_ERR_OR_NULL(ib_dev))
 		return PTR_ERR(ib_dev);
 
@@ -978,7 +985,7 @@ static int appleib_probe(struct acpi_device *acpi)
 		ib_dev->subdevs[i].pdata_size = sizeof(ib_dev->dev_data);
 	}
 
-	ret = devm_mfd_add_devices(&acpi->dev, PLATFORM_DEVID_NONE,
+	ret = devm_mfd_add_devices(&pdev->dev, PLATFORM_DEVID_NONE,
 				   ib_dev->subdevs, ARRAY_SIZE(ib_dev->subdevs),
 				   NULL, 0, NULL);
 	if (ret) {
@@ -1003,14 +1010,14 @@ static int appleib_probe(struct acpi_device *acpi)
 		return ret;
 	}
 
-	acpi->driver_data = ib_dev;
+	platform_set_drvdata(pdev, ib_dev);
 
 	return 0;
 }
 
-static void appleib_remove(struct acpi_device *acpi)
+static void appleib_remove(struct platform_device *pdev)
 {
-	struct appleib_device *ib_dev = acpi_driver_data(acpi);
+	struct appleib_device *ib_dev = platform_get_drvdata(pdev);
 
 	hid_unregister_driver(&ib_dev->ib_driver);
 
@@ -1022,7 +1029,7 @@ static int appleib_suspend(struct device *dev)
 	struct appleib_device *ib_dev;
 	int rc;
 
-	ib_dev = acpi_driver_data(to_acpi_device(dev));
+	ib_dev = dev_get_drvdata(dev);
 
 	rc = acpi_execute_simple_method(ib_dev->asoc_socw, NULL, 0);
 	if (ACPI_FAILURE(rc))
@@ -1037,7 +1044,7 @@ static int appleib_resume(struct device *dev)
 	struct appleib_device *ib_dev;
 	int rc;
 
-	ib_dev = acpi_driver_data(to_acpi_device(dev));
+	ib_dev = dev_get_drvdata(dev);
 
 	rc = acpi_execute_simple_method(ib_dev->asoc_socw, NULL, 1);
 	if (ACPI_FAILURE(rc))
@@ -1060,20 +1067,22 @@ static const struct acpi_device_id appleib_acpi_match[] = {
 
 MODULE_DEVICE_TABLE(acpi, appleib_acpi_match);
 
-static struct acpi_driver appleib_driver = {
-	.name		= "apple-ibridge",
-	.class		= "topcase", /* ? */
-	.ids		= appleib_acpi_match,
-	.ops		= {
-		.add		= appleib_probe,
-		.remove		= appleib_remove,
-	},
-	.drv		= {
-		.pm		= &appleib_pm,
+/*
+ * Linux 7.3 removed struct acpi_driver. The ACPI core already creates a
+ * platform device for APP7777, so bind to that instead (works on older
+ * kernels too).
+ */
+static struct platform_driver appleib_driver = {
+	.probe		= appleib_probe,
+	.remove		= appleib_remove,
+	.driver		= {
+		.name			= "apple-ibridge",
+		.acpi_match_table	= appleib_acpi_match,
+		.pm			= &appleib_pm,
 	},
 };
 
-module_acpi_driver(appleib_driver)
+module_platform_driver(appleib_driver)
 
 MODULE_AUTHOR("Ronald Tschalär");
 MODULE_DESCRIPTION("Apple iBridge driver");
