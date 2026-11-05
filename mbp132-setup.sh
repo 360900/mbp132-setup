@@ -625,6 +625,11 @@ uninstall() {
         dkms remove -m "$TB_NAME" -v "$v" --all || true
     done < <(tb_dkms_versions)
     rm -rf "/usr/src/${TB_NAME}-"*
+    # davidjo's remove step runs a plain "dkms remove", which only covers the
+    # running kernel; remove the audio driver from every kernel first.
+    if dkms status -m snd_hda_macbookpro 2>/dev/null | grep -q .; then
+        dkms remove snd_hda_macbookpro/0.1 --all || true
+    fi
     if [[ -x "$AUDIO_SYS_DIR/install.cirrus.driver.sh" ]]; then
         (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -r) || true
     fi

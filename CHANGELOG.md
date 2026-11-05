@@ -26,4 +26,5 @@
 - Driver copies under `/usr/src` and `/usr/local/src` are chowned to `root:root` instead of keeping the invoking user's ownership (root builds and runs that code later).
 - A stale `/usr/src/snd_hda_macbookpro-0.1` symlink left by a manual install of davidjo's script is replaced before the audio install, so DKMS builds from the system copy, not the user's old clone.
 - The audio driver is built and installed for every installed kernel, not only the running one.
+- `--uninstall` removes the audio driver from every kernel. davidjo's remove step runs a plain `dkms remove`, which DKMS 3.4 applies to the running kernel only; the LTS module stayed in `updates/dkms` and DKMS was left with a `broken` entry once the source was deleted. Found on the MacBookPro13,2 (2026-11-01).
 - CI: the Manjaro job initializes the pacman keyring and package database before searching for kernel header packages, and on failure prints every DKMS `make.log`.
