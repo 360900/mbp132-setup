@@ -405,8 +405,21 @@ find_t1_firmware() {
     return 1
 }
 
+# Linux often has its own EFI partition, with the macOS one left unmounted.
+# Mount each unmounted one read-only on $1 until the firmware turns up.
+mount_t1_esp() {
+    local dev type mnt
+    while read -r dev type mnt; do
+        [[ ${type,,} == c12a7328-f81f-11d2-ba4b-00a0c93ec93b && -z $mnt ]] || continue
+        mount -t vfat -o ro,noatime,nosuid,nodev,noexec "$dev" "$1" 2>/dev/null || continue
+        [[ -d "$1/EFI/APPLE/EMBEDDEDOS" ]] && return 0
+        umount "$1" || return 1
+    done < <(lsblk -rno PATH,PARTTYPE,MOUNTPOINT)
+    return 1
+}
+
 check_t1() {
-    local src hint="reinstall macOS, or copy the folder back from a backup"
+    local src tmp="" hint="reinstall macOS, or copy the folder back from a backup"
     if (( T1_RECOVERY )); then
         [[ -d "$T1_BACKUP" ]] && hint+=" such as $T1_BACKUP"
         warn "The T1 chip is in recovery mode (USB 05ac:1281): its firmware is missing from the EFI partition."
@@ -416,21 +429,30 @@ check_t1() {
         return 0
     fi
     if ! src="$(find_t1_firmware)"; then
-        warn "EFI/APPLE/EMBEDDEDOS/ not found on a mounted EFI partition, so it was not backed up."
-        warn "Never delete or reformat the EFI partition: it holds the Touch Bar firmware."
-        return 0
+        tmp="$(mktemp -d)"
+        if mount_t1_esp "$tmp"; then
+            src="$tmp/EFI/APPLE/EMBEDDEDOS"
+        else
+            rmdir "$tmp" 2>/dev/null || true
+            warn "EFI/APPLE/EMBEDDEDOS/ not found on any EFI partition, so it was not backed up."
+            warn "Never delete or reformat the EFI partition: it holds the Touch Bar firmware."
+            return 0
+        fi
     fi
-    if [[ -d "$T1_BACKUP" ]] && diff -rq "$src" "$T1_BACKUP" >/dev/null 2>&1; then
-        return 0
-    fi
-    rm -rf "$T1_BACKUP"
-    mkdir -p "$(dirname "$T1_BACKUP")"
-    if ! cp -r "$src" "$T1_BACKUP"; then
-        warn "Could not back up $src to $T1_BACKUP; back it up yourself."
+    if ! { [[ -d "$T1_BACKUP" ]] && diff -rq "$src" "$T1_BACKUP" >/dev/null 2>&1; }; then
         rm -rf "$T1_BACKUP"
-        return 0
+        mkdir -p "$(dirname "$T1_BACKUP")"
+        if cp -r "$src" "$T1_BACKUP"; then
+            log "Backed up the T1 firmware to $T1_BACKUP; keep a copy off this machine too."
+        else
+            warn "Could not back up $src to $T1_BACKUP; back it up yourself."
+            rm -rf "$T1_BACKUP"
+        fi
     fi
-    log "Backed up the T1 firmware ($src) to $T1_BACKUP; keep a copy off this machine too."
+    if [[ -n $tmp ]]; then
+        umount "$tmp" && rmdir "$tmp" || warn "Could not unmount $tmp; it is read-only, reboot to clear it."
+    fi
+    return 0
 }
 
 # ---------------------------------------------------------------- keyboard --

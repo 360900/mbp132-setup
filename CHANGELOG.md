@@ -24,6 +24,7 @@
 - Applied the `struct tb_touch` build fix to the vendored driver as a committed patch and bumped `PACKAGE_VERSION` to `0.1.1` to mark the fork.
 
 ### Fixed
+- T1 firmware was not backed up when Linux has its own EFI partition and the macOS one is unmounted. The script now looks on unmounted EFI partitions too, mounted read-only for the copy. Found on the MacBookPro13,2 (2026-11-05).
 - Wi-Fi dead after waking on the MacBookPro13,2 (driver commands time out, scans fail). A sleep hook reloads `brcmfmac` around sleep; 0 timeouts in every sleep since (2026-11-04).
 - Touch Bar dark after s2idle. USB keeps power there, so the device takes plain resume, and the driver only had `reset_resume`. Added `resume`. Verified on the MacBookPro13,2 with one s2idle sleep (2026-11-05).
 - Touch Bar driver leaked a USB power reference on every resume, and showed desktops a touchscreen that never reports in keyboard mode. Fixes from upstream PR 3 by nonderbe; `PACKAGE_VERSION` bumped to `0.1.4`. Not yet run on hardware.
