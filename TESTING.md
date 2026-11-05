@@ -33,7 +33,9 @@ reboot
    - The brightness, volume and keyboard-backlight keys work.
    - `/var/lib/mbp132-setup/t1-firmware/combined.memboot` exists (the T1 firmware backup).
    - With usbmuxd installed (`pacman -S usbmuxd`, then reboot), the Touch Bar still lights up and this prints `1`: `cat "$(dirname "$(grep -l 8600 /sys/bus/usb/devices/*/idProduct)")/bConfigurationValue"`.
-3. Audio: speakers, microphone, headphone jack. Also after 2 minutes of silence (codec power saving, `cat /sys/module/snd_hda_intel/parameters/power_save`).
+3. Audio: speakers, microphone, headphone jack.
+   - Run this with codec power saving on: `cat /sys/module/snd_hda_intel/parameters/power_save` must not be `0`. Remove any manual `snd_hda_intel power_save=0` option from `/etc/modprobe.d/` first, and reboot.
+   - Play sound again after 2 minutes of silence; it must still work, without noise.
 4. Suspend, three times:
    - Close the lid, wait 30 s, open it and press a key. It must not wake by itself.
    - Check with `journalctl -b -o short-unix | grep -E "PM: suspend (entry|exit)"`.
