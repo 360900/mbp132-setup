@@ -1292,8 +1292,16 @@ static int appletb_resume(struct hid_device *hdev)
 {
 	struct appletb_device *tb_dev =
 		appleib_get_drvdata(hid_get_drvdata(hdev), &appletb_hid_driver);
+	struct appletb_report_info *rinfo;
+	unsigned long flags;
+	bool suspended;
 
-	if (!appletb_get_report_info(tb_dev, hdev)->suspended)
+	spin_lock_irqsave(&tb_dev->tb_lock, flags);
+	rinfo = appletb_get_report_info(tb_dev, hdev);
+	suspended = rinfo && rinfo->suspended;
+	spin_unlock_irqrestore(&tb_dev->tb_lock, flags);
+
+	if (!suspended)
 		return 0;
 
 	return appletb_reset_resume(hdev);
