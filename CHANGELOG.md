@@ -24,6 +24,7 @@ Installed from this tree on a MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-0
 - Applied the `struct tb_touch` build fix to the vendored driver as a committed patch and bumped `PACKAGE_VERSION` to `0.1.1` to mark the fork.
 
 ### Fixed
+- `dkms` stayed marked as a dependency if another package had installed it, so removing that package with `pacman -Rns` also removed `dkms` and the drivers stopped rebuilding. The script now marks it as explicitly installed. Found on the MacBookPro13,2 (2026-11-05).
 - T1 firmware was not backed up when Linux has its own EFI partition and the macOS one is unmounted. The script now looks on unmounted EFI partitions too, mounted read-only for the copy. Found on the MacBookPro13,2 (2026-11-05).
 - Wi-Fi dead after waking on the MacBookPro13,2 (driver commands time out, scans fail). A sleep hook reloads `brcmfmac` around sleep; 0 timeouts in every sleep since (2026-11-04).
 - Touch Bar dark after s2idle. USB keeps power there, so the device takes plain resume, and the driver only had `reset_resume`. Added `resume`. On the MacBookPro13,2 it now lights up at the first touch after waking, not by itself (2026-11-05).

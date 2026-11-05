@@ -202,6 +202,10 @@ install_deps() {
     done
     log "Installing dependencies: ${pkgs[*]}"
     pacman -S --needed --noconfirm "${pkgs[@]}"
+    # --needed skips a dkms that came in as a dependency of another package, and
+    # removing that package with -Rns would then remove dkms too. Without dkms
+    # the drivers stop rebuilding on kernel updates.
+    pacman -D --asexplicit dkms >/dev/null
 }
 
 # The audio build needs wget (kernel source from cdn.kernel.org) and patch.
