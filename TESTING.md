@@ -41,7 +41,7 @@ reboot
 4. Suspend, three times:
    - On the charger and on battery: close the lid, wait 1 minute, open it. It must not wake by itself. If opening the lid does not wake it, press a key.
    - Check with `journalctl -b -o short-unix | grep -E "PM: suspend (entry|exit)"`; on the 13,2 the entry line says `s2idle`.
-   - After each wake the Touch Bar, audio, keyboard and trackpad work, and `journalctl -k -b | grep 'Touchbar resumed'` shows a line.
+   - After each wake audio, keyboard and trackpad work, and `journalctl -k -b | grep 'Touchbar resumed'` shows a line. With s2idle the Touch Bar stays dark until first touched, then works.
    - After a suspend, `grep enabled /proc/acpi/wakeup` lists no `LID*`, `XHC*`, `ARPT` or `RP*` entry, and `SPIT` is enabled.
 5. USB-C after sleep: a USB stick in a USB-C port is detected without replugging.
 6. Wi-Fi:

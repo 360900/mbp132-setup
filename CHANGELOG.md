@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-**Not yet re-tested on hardware.** The self-contained rework (vendored drivers, no clone at install) has not been run on a MacBookPro13,2 since; follow [TESTING.md](TESTING.md) to verify.
+Installed from this tree on a MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-05), over an earlier install, not on a clean system. The full [TESTING.md](TESTING.md) list has not been run.
 
 ### Added
 - Wi-Fi calibration file for the MacBookPro13,2's BCM43602 (`firmware/brcmfmac43602-pcie.txt.in`, from kernel bugzilla attachment 290569 + comment 97), installed with the user's MAC (`--wifi-mac`, otherwise one derived from `/etc/machine-id`) and country (`--wifi-country CC[/REV]`, otherwise the system's regulatory country; `TR` uses firmware revision 1). Verified on the MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-01): 2.4 GHz and 5 GHz on channel 40 and on the radar channel 56, 80 MHz 802.11ac, link rate up to 702 Mbit/s, ~40 MB/s download. With the default `TR/0`, channels 52-64 were passive and every join there failed at once, and 100-140 were off.
@@ -18,7 +18,7 @@
 - Hardware notes (`NOTES.md`), test checklist (`TESTING.md`), per-driver documentation (`drivers/README.md`) and the `bcmprobe.py` diagnostics tool.
 
 ### Changed
-- The MacBookPro13,2 sleeps in s2idle (`MemorySleepMode=s2idle`). Deep sleep on battery broke Wi-Fi until reboot in 6 of 6 sleeps. With s2idle, 2 of 2 battery sleeps kept it, on 5 GHz with no rejected joins (2026-11-05). Charger, 2.4 GHz, USB-C after waking, long sleeps and battery drain are not tested yet. Other models stay on deep.
+- The MacBookPro13,2 sleeps in s2idle (`MemorySleepMode=s2idle`). Deep sleep on battery broke Wi-Fi until reboot in 6 of 6 sleeps. With s2idle, 2 of 2 battery and 2 of 2 charger sleeps kept it, on 5 GHz with no rejected joins after waking and no bounces (2026-11-05). 2.4 GHz, USB-C after waking, long sleeps and battery drain are not tested yet. Other models stay on deep.
 - `mbp132-setup.sh` installs drivers from the vendored tree: the Touch Bar driver is copied to `/usr/src/appleibridge-<version>` and rebuilt through DKMS on every run; the audio driver is copied to `/usr/local/src/mbp132-setup` with a fingerprint file so unchanged installs are skipped. The old clone-based flow was removed.
 - The sleep hook disables wake sources by kind (`LID*`, `XHC*`, `ARPT`, `RP*`) instead of a fixed 13,2 list.
 - Applied the `struct tb_touch` build fix to the vendored driver as a committed patch and bumped `PACKAGE_VERSION` to `0.1.1` to mark the fork.
@@ -26,8 +26,8 @@
 ### Fixed
 - T1 firmware was not backed up when Linux has its own EFI partition and the macOS one is unmounted. The script now looks on unmounted EFI partitions too, mounted read-only for the copy. Found on the MacBookPro13,2 (2026-11-05).
 - Wi-Fi dead after waking on the MacBookPro13,2 (driver commands time out, scans fail). A sleep hook reloads `brcmfmac` around sleep; 0 timeouts in every sleep since (2026-11-04).
-- Touch Bar dark after s2idle. USB keeps power there, so the device takes plain resume, and the driver only had `reset_resume`. Added `resume`. Verified on the MacBookPro13,2 with one s2idle sleep (2026-11-05).
-- Touch Bar driver leaked a USB power reference on every resume, and showed desktops a touchscreen that never reports in keyboard mode. Fixes from upstream PR 3 by nonderbe; `PACKAGE_VERSION` bumped to `0.1.4`. Not yet run on hardware.
+- Touch Bar dark after s2idle. USB keeps power there, so the device takes plain resume, and the driver only had `reset_resume`. Added `resume`. On the MacBookPro13,2 it now lights up at the first touch after waking, not by itself (2026-11-05).
+- Touch Bar driver leaked a USB power reference on every resume, and showed desktops a touchscreen that never reports in keyboard mode. Fixes from upstream PR 3 by nonderbe; `PACKAGE_VERSION` bumped to `0.1.4`. Installed and run on the MacBookPro13,2: no touchscreen device, 2 s2idle sleeps (2026-11-05).
 - Speakers silent after suspend until reboot. The vendored CS8409 driver's resume handler only re-ran the generic HDA init, never the Apple codec/CS42L83/amp setup that `cs_8409_boot_setup()` does at probe. It now runs that setup again on the first resume after a system sleep (PM notifier), or whenever the codec's subsystem id register shows a power loss, and restores the firmware's subsystem id and pin configs. Verified on the MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-01): sound after S3. Patched in `patch_cirrus/cirrus_apple.h` and `patch_cs8409.h.diff`.
 - Touch Bar driver failed to build on Linux 7.3 (`struct acpi_driver` was removed). `apple-ibridge` now binds as a platform driver to the `APP7777` device the ACPI core creates; `PACKAGE_VERSION` bumped to `0.1.2`. Found on the MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-01).
 - `tb_dkms_versions()` now also matches DKMS versions in the `added` (not yet built) state, so they are removed together with their stale `/usr/src` copies instead of staying registered.

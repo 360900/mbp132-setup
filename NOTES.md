@@ -20,7 +20,7 @@ Test system: CachyOS, kernel 7.3.1 (LTS 6.18 also installed), GRUB, mkinitcpio w
 ## Suspend / resume
 
 - The 13,2 uses `s2idle`, because `deep` (S3) breaks Wi-Fi (see [Wi-Fi after sleep](#wi-fi-after-sleep)). Set with `MemorySleepMode=s2idle` in `sleep.conf.d`, so no boot option is needed.
-- `s2idle` once broke the Touch Bar and audio. With the current drivers audio is fine, and the Touch Bar needed a `.resume` handler (`patches/0004`).
+- `s2idle` once broke the Touch Bar and audio. With the current drivers audio is fine, and the Touch Bar needed a `.resume` handler (`patches/0004`). It stays dark after waking until first touched; cause not investigated. Separately, the driver turns it off after 5 idle minutes (`idle_timeout=300`).
 - **Instant wake-ups:** these come from the ACPI wake sources `LID0`, `XHC1`–`XHC3`, `ARPT` (Wi-Fi) and the PCIe root ports `RP01/05/09/12`. Disable them before each sleep, but keep `SPIT` (keyboard and trackpad) enabled. Opening the lid still wakes the machine with `LID0` disabled, in both sleep modes.
 - **d3cold:** keep every PCI device out of `d3cold`. The Apple S3X NVMe (`106b:2003`) and the Thunderbolt xHCI controllers fail to resume from it.
 - **Thunderbolt:** suspend/resume of the `thunderbolt` driver fails, and the USB-C ports' USB controllers disappear until reboot. Unload the module before sleep and load it after waking.
@@ -85,9 +85,10 @@ Measured on one 13,2, kernel 7.3.1, firmware 7.35.177.61, 2026-11-04 and 05.
 | `deep`, unplugged during sleep | Inconclusive, router on a radar channel |
 | `deep` that bounces, charger, lid open | 5 of 5 |
 | `s2idle`, battery | 0 of 2, rejoined in 3-4 s, 0 rejects |
+| `s2idle`, charger | 0 of 2, rejoined in 3-4 s, 0 rejects, no bounce |
 | Windows on this Mac, `S3`, battery | 0 of 3 |
 
-Not tested with `s2idle`: charger, 2.4 GHz, USB-C after waking, long sleeps, battery drain. Failure cause unknown: the state seems to be outside the card, or the firmware handles something the platform does badly.
+Not tested with `s2idle`: 2.4 GHz, USB-C after waking, long sleeps, battery drain. Failure cause unknown: the state seems to be outside the card, or the firmware handles something the platform does badly.
 
 **Bounces:** on the charger, `deep` often enters and leaves S3 within about 1 ms (2-6 of 8 per run), and charger presence was the only thing that changed the rate (battery: 0 of 9). Side, hub, full versus charging, `macsmc` drivers and Linux wake settings made no difference. Wake reason not found.
 
