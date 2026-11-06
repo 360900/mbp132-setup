@@ -553,7 +553,7 @@ ACTION=="add", SUBSYSTEM=="pci", ATTR{class}=="0x0c0330", ATTR{power/wakeup}="di
 EOF
 
     write_file "$F_HOOK" 755 <<'EOF'
-#!/bin/sh
+#!/bin/bash
 # Installed by mbp132-setup.sh: runs around every sleep.
 # pre:  disable ACPI wake sources that cause instant wake-ups (lid sensor, USB,
 #       Wi-Fi, PCIe root ports; matched by kind because the root port names
@@ -561,20 +561,120 @@ EOF
 #       (SPIT) on, keep every PCI device out of d3cold, and unload the
 #       Thunderbolt driver (its suspend/resume fails and the USB-C ports
 #       disappear after waking).
-# post: load the Thunderbolt driver again so the USB-C ports come back.
+#       In S3 the firmware cuts power to the Thunderbolt controllers, so remove
+#       their PCI trees first. A side with a mounted disk or swap stays, because
+#       removing it would tear the filesystem; S3 then loses that side anyway.
+# post: load the Thunderbolt driver and rescan, which builds the trees again.
+# Adapted from thunderbolt-remove-rescan in omarchy PR 11570.
+STATE=/run/mbp132-tb-removed
+log() { logger -t mbp132-sleep-fix -- "$*"; }
+
+# Upstream port of each Thunderbolt controller: an Intel bridge directly below a
+# chipset root port. Also finds a tree whose driver failed to bind.
+tb_ports() {
+    local p
+    for p in /sys/devices/pci0000:00/0000:*/0000:*; do
+        [[ -e $p/remove && $(cat "$p/class") == 0x0604* && $(cat "$p/vendor") == 0x8086 ]] || continue
+        [[ $(cat "$(dirname "$p")/class") == 0x0604* ]] && echo "$p"
+    done
+}
+
+# Is block device $1 reached through PCI device $2? Follows dm/md slaves.
+under_port() {
+    local p s
+    p=$(readlink -f "/sys/class/block/$1" 2>/dev/null) || return 1
+    [[ $p == "$2"/* ]] && return 0
+    for s in "/sys/class/block/$1"/slaves/*; do
+        [[ -e $s ]] && under_port "${s##*/}" "$2" && return 0
+    done
+    return 1
+}
+
+# Print the first mounted or swap device reached through PCI device $1, if any.
+mounted_under() {
+    local dev b
+    while read -r dev _; do
+        [[ $dev == /dev/* ]] || continue
+        b=$(readlink -f "$dev" 2>/dev/null) || continue
+        under_port "${b##*/}" "$1" && { echo "$dev"; return 0; }
+    done < <(cat /proc/mounts /proc/swaps 2>/dev/null)
+    # /proc/mounts names one member of a multi-device btrfs; sysfs lists them all.
+    for b in /sys/fs/btrfs/*/devices/*; do
+        [[ -e $b ]] && under_port "${b##*/}" "$1" && { echo "/dev/${b##*/}"; return 0; }
+    done
+    return 1
+}
+
+# The state systemd-sleep will write to /sys/power/state: the first SuspendState=
+# entry the kernel supports. Only "mem" honors mem_sleep; "freeze" is s2idle.
+suspend_state() {
+    local want s
+    want=$(systemd-analyze cat-config systemd/sleep.conf 2>/dev/null | awk '
+        /^[[:space:]]*SuspendState[[:space:]]*=/ {
+            v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); gsub(/"/, "", v)
+            if (v ~ /^[[:space:]]*$/) s = ""; else s = s " " v
+        }
+        END { print s }')
+    for s in ${want:-mem standby freeze}; do
+        [[ " $(cat /sys/power/state 2>/dev/null) " == *" $s "* ]] && { echo "$s"; return 0; }
+    done
+    return 1
+}
+
+remove_trees() {
+    local up rp m i ok roots=
+    sync
+    for up in $(tb_ports); do
+        rp=$(dirname "$up")
+        if m=$(mounted_under "$up"); then
+            log "pre: keeping $(basename "$up"): $m is in use through it"
+        elif echo 1 > "$up/remove" 2>/dev/null; then
+            log "pre: removed $(basename "$up")"
+            roots="$roots $rp"
+            # Let the empty root port power down the way the firmware expects. The
+            # d3cold settings above made its first try fail, so ask it again.
+            echo 1 > "$rp/d3cold_allowed"
+            echo disabled > "$rp/power/wakeup"
+            echo on > "$rp/power/control"
+            echo auto > "$rp/power/control"
+        else
+            log "pre: could not remove $(basename "$up")"
+        fi
+    done
+    for ((i = 0; i < 50; i++)); do
+        ok=1
+        for rp in $roots; do
+            [[ $(cat "$rp/power/runtime_status" 2>/dev/null) == suspended ]] || ok=0
+        done
+        (( ok )) && break
+        sleep 0.1
+    done
+    (( ok )) || log "pre: root ports did not power down in 5 s"
+}
+
 case "$1" in
 pre)
+    rm -f "$STATE"
     while read -r d _ state _; do
         case "$d" in
-        LID*|XHC*|ARPT|RP[0-9]*) [ "$state" = "*enabled" ] && echo "$d" > /proc/acpi/wakeup ;;
+        LID*|XHC*|ARPT|RP[0-9]*) [[ $state == "*enabled" ]] && echo "$d" > /proc/acpi/wakeup ;;
         esac
     done < /proc/acpi/wakeup
     grep -q "^SPIT.*disabled" /proc/acpi/wakeup && echo SPIT > /proc/acpi/wakeup
     for f in /sys/bus/pci/devices/*/d3cold_allowed; do echo 0 > "$f"; done
+    if [[ $2 == suspend && $(suspend_state) == mem && $(cat /sys/power/mem_sleep) == *'[deep]'* ]]; then
+        touch "$STATE"
+        remove_trees
+    fi
     modprobe -r thunderbolt
     ;;
 post)
     modprobe thunderbolt
+    if [[ -e $STATE ]]; then
+        rm -f "$STATE"
+        echo 1 > /sys/bus/pci/rescan
+        log "post: rescanned, $(ls /sys/bus/pci/drivers/xhci_hcd | grep -c '^0000') USB controllers"
+    fi
     ;;
 esac
 exit 0

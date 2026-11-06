@@ -23,7 +23,7 @@ Test system: CachyOS, kernel 7.3.1 (LTS 6.18 also installed), GRUB, mkinitcpio w
 - In `s2idle` audio is fine now, and the Touch Bar needed a `.resume` handler (`patches/0004`). It stays dark after waking until first touched; cause not investigated. Separately, the driver turns it off after 5 idle minutes (`idle_timeout=300`).
 - **Instant wake-ups:** these come from the ACPI wake sources `LID0`, `XHC1`–`XHC3`, `ARPT` (Wi-Fi) and the PCIe root ports `RP01/05/09/12`. Disable them before each sleep, but keep `SPIT` (keyboard and trackpad) enabled. So open the lid and press a key or the power button to wake.
 - **d3cold:** keep every PCI device out of `d3cold`. The Apple S3X NVMe (`106b:2003`) and the Thunderbolt xHCI controllers fail to resume from it.
-- **Thunderbolt:** suspend/resume of the `thunderbolt` driver fails, and the USB-C ports' USB controllers disappear until reboot. Unload the module before sleep and load it after waking.
+- **Thunderbolt:** suspend/resume of the `thunderbolt` driver fails, and the firmware cuts the controllers' power in S3. Remove both upstream ports and unload the module before sleep, then load it and rescan after waking. From `thunderbolt-remove-rescan` in omarchy PR 11570, merged into one hook because hooks run in parallel. Our `d3cold_allowed=0` writes make the empty root port's first runtime suspend fail, so the hook toggles `power/control` to retry it.
 - **Hibernation:** resume fails with a black screen, so it is disabled with `AllowHibernation=no`, `AllowSuspendThenHibernate=no` and `AllowHybridSleep=no`.
 - Reference: Dunedan/mbp-2016-linux issue #207.
 
@@ -116,7 +116,9 @@ Measured on one 13,2, kernel 7.3.1, firmware 7.35.177.61, 2026-11-04 and 05.
 **Open:**
 
 - `macsmc-ac` `online` goes stale if the charger changes during sleep; `EC.EACP` stays right. Seen in `deep`.
-- USB-C after `deep`: both Thunderbolt controllers can fail with `D3cold to D0, device inaccessible` and `timeout resetting host router`. A hub then appears on the chipset's USB 2 port: drives work, its Ethernet does not, until reboot. Omarchy PR 11570 has a remove and rescan hook and kernel patches, not tried here.
+- USB-C after `deep` with a device left in a port, 13,2, hub on the right, lid closed, battery, no bounce. Removing every side (285 s): hub back by itself on USB 2, empty side back at 8 GT/s, `noirq` resume 12 ms, no errors. Leaving the occupied side in place (516 s): hub gone until replug, `timeout resetting host router`, `pci_disable_device` warning, `noirq` 1020 ms. A replug stayed on USB 2 both ways, with `PresDet-` and link x0 on the root port. A port on the other side gave USB 3 for the hub and drive; the Ethernet adapter stayed on USB 2.
+- Recovery: `SXFP(0)` then `TRPE(1)` while awake switches the power pins but does not bring the controller back, with the port occupied or empty. One S3 sleep with the port empty does (823 s, one run).
+- `SXFP(0)` from the sleep hook, with bit 26 of plug events CS_20 cleared through `UPSB.CRMW`, works on an empty side but does not save an occupied one. Whether it reduces bounces on the charger is untested. Linux patch "thunderbolt: Call SXFP() on Apple systems with Alpine Ridge when suspending" calls it later, with the tree in place, and is unmerged.
 - Sleep can still end within seconds on the charger.
 - NetworkManager's `no-secrets` give-up after repeated rejects.
 
