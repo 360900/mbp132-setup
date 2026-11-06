@@ -25,9 +25,9 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: shellcheck
-        run: shellcheck -S warning mbp132-setup.sh
+        run: shellcheck -S warning mbp132-setup-cli.sh
       - name: bash -n
-        run: bash -n mbp132-setup.sh
+        run: bash -n mbp132-setup-cli.sh
       - name: Python syntax check
         run: python3 -m py_compile tools/*.py
 

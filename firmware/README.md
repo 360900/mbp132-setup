@@ -1,6 +1,6 @@
 # BCM43602 calibration (NVRAM) template
 
-`brcmfmac43602-pcie.txt.in` is the NVRAM text that `mbp132-setup.sh` installs as
+`brcmfmac43602-pcie.txt.in` is the NVRAM text that `mbp132-setup-cli.sh` installs as
 `/usr/lib/firmware/brcm/brcmfmac43602-pcie.Apple Inc.-MacBookPro13,2.txt`.
 The script fills in three values:
 

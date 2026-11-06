@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# mbp132-setup.sh: one-shot Linux setup for the MacBook Pro 13" 2016 with Touch Bar
+# mbp132-setup-cli.sh: command-line version of the one-shot Linux setup for the MacBook Pro 13" 2016 with Touch Bar
 # (model identifier MacBookPro13,2) on Arch-based distributions. The other
 # 2016-2017 MacBook Pros (13,1 13,3 14,1 14,2 14,3) are supported but untested;
 # the Touch Bar and Wi-Fi parts are installed only where that hardware exists.
@@ -25,7 +25,7 @@
 # The script runs from a clone of this repository: it installs the drivers
 # vendored under drivers/ instead of cloning anything at install time.
 #
-# Usage: sudo ./mbp132-setup.sh [options]
+# Usage: sudo ./mbp132-setup-cli.sh [options]
 #   --iso            fix swapped keys on ISO (non-US) keyboards (applespi iso_layout=1)
 #   --fn-ctrl-swap   swap Fn and left Ctrl (applespi fnremap=1)
 #   --windows-keys   KDE: swap left Option/Command (Windows order Ctrl-Win-Alt)
@@ -47,6 +47,12 @@
 #   -h, --help       show this help
 
 set -euo pipefail
+
+# The graphical installer runs this through pkexec, which sets PKEXEC_UID
+# instead of SUDO_USER. The per-user steps need the real user either way.
+if [[ -z ${SUDO_USER:-} && -n ${PKEXEC_UID:-} ]]; then
+    SUDO_USER=$(id -nu "$PKEXEC_UID")
+fi
 
 # ---------------------------------------------------------------- settings --
 # The script runs from a clone of this repository; the drivers it installs
@@ -951,5 +957,5 @@ Tips:
   - Wi-Fi (MacBookPro13,2): 2.4 and 5 GHz incl. radar channels, 80 MHz max (the chip has no 160 MHz).
     Other BCM43602 models: 2.4 GHz only so far.
   - Never delete or reformat the EFI partition: EFI/APPLE/EMBEDDEDOS/ holds the Touch Bar firmware.
-  - Something broken? Run  sudo ./mbp132-setup.sh --report  and attach the file to an issue.
+  - Something broken? Run  sudo ./mbp132-setup-cli.sh --report  and attach the file to an issue.
 EOF

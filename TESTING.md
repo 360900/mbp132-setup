@@ -19,7 +19,7 @@ Also run `dkms status` and remove old `appleibridge` versions with `sudo dkms re
 
 ```sh
 git clone <this repo> && cd <repo>
-sudo ./mbp132-setup.sh [--iso] [--windows-keys] [--wifi-mac aa:bb:cc:dd:ee:ff]
+sudo ./mbp132-setup-cli.sh [--iso] [--windows-keys] [--wifi-mac aa:bb:cc:dd:ee:ff]
 reboot
 ```
 
@@ -55,7 +55,7 @@ reboot
 7. Keyboard (if used): with `--iso`, the keys next to left Shift and the one below Esc are correct. With `--windows-keys`, AltGr works on right Command and right Option.
 8. Re-run the script: no errors and nothing duplicated.
 9. Kernel update: after `pacman -Syu` installs a new kernel, both drivers rebuild for it (`dkms status`) before rebooting.
-10. `sudo ./mbp132-setup.sh --uninstall`:
+10. `sudo ./mbp132-setup-cli.sh --uninstall`:
     - Every installed file is gone and any moved NVRAM file is restored.
     - It reboots cleanly.
     - Then reinstall.

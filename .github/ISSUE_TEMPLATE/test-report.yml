@@ -87,6 +87,6 @@ body:
     id: report
     attributes:
       label: Report
-      description: "Output of `sudo ./mbp132-setup.sh --report`. Paste the file contents or attach the file."
+      description: "Output of `sudo ./mbp132-setup-cli.sh --report`. Paste the file contents or attach the file."
     validations:
       required: true

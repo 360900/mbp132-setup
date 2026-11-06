@@ -1,6 +1,6 @@
 # Hardware notes: MacBookPro13,2
 
-Findings behind `mbp132-setup.sh`, from testing on one MacBook Pro 13" 2016 with Touch Bar and four Thunderbolt 3 ports (MacBookPro13,2, Core i5).
+Findings behind `mbp132-setup-cli.sh`, from testing on one MacBook Pro 13" 2016 with Touch Bar and four Thunderbolt 3 ports (MacBookPro13,2, Core i5).
 
 Test system: CachyOS, kernel 7.3.1 (LTS 6.18 also installed), GRUB, mkinitcpio with the systemd hook, btrfs, KDE Plasma (Wayland).
 

@@ -7,6 +7,12 @@ One script to make Linux usable on the **MacBook Pro 13" 2016 with Touch Bar (Ma
 >
 > `EFI/APPLE/EMBEDDEDOS/` on it holds the T1 chip's firmware, which the Mac loads at every power-on. Without it the **Touch Bar, camera, Touch ID and ambient light sensor stop working**, and only reinstalling macOS restores it. Back the folder up before you start.
 
+Example, for a Turkish ISO keyboard with Windows-style keys:
+
+```sh
+sudo ./mbp132-setup-cli.sh --iso --windows-keys --wifi-country TR/1
+```
+
 | Component | Status after running the script |
 |---|---|
 | Audio (speakers, mic) | ✅ via [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro), set up again after sleep |
@@ -28,7 +34,7 @@ Tested on CachyOS, kernel 7.3.1, GRUB + mkinitcpio + systemd.
 ```sh
 git clone https://github.com/360900/mbp132-setup.git
 cd mbp132-setup
-sudo ./mbp132-setup.sh            # add --iso for non-US keyboards
+sudo ./mbp132-setup-cli.sh            # add --iso for non-US keyboards
 reboot
 ```
 
@@ -36,7 +42,7 @@ Both drivers are vendored in this repository (`drivers/`); the script installs t
 
 Options: `--iso`, `--fn-ctrl-swap`, `--windows-keys`, `--wifi-mac MAC`, `--wifi-country CC[/REV]`, `--no-audio`, `--no-touchbar`, `--no-sleep`, `--no-wifi`, `--force`, `--uninstall`, `--report`. Run `--help` for details.
 
-Other 2016-2017 MacBook Pros (13,1, 13,3, 14,1, 14,2, 14,3) are supported but untested. The Touch Bar and Wi-Fi parts are installed only where that hardware exists. To help, run `sudo ./mbp132-setup.sh --report` (works on any model, changes nothing) and open a [test report](https://github.com/360900/mbp132-setup/issues/new?template=test-report.yml).
+Other 2016-2017 MacBook Pros (13,1, 13,3, 14,1, 14,2, 14,3) are supported but untested. The Touch Bar and Wi-Fi parts are installed only where that hardware exists. To help, run `sudo ./mbp132-setup-cli.sh --report` (works on any model, changes nothing) and open a [test report](https://github.com/360900/mbp132-setup/issues/new?template=test-report.yml).
 
 After every kernel update, run `dkms status` before rebooting: both drivers should show `installed` for the new kernel.
 

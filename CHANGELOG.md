@@ -18,7 +18,7 @@ Installed from this tree on a MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-0
 - Hardware notes (`NOTES.md`), test checklist (`TESTING.md`), per-driver documentation (`drivers/README.md`) and the `bcmprobe.py` diagnostics tool.
 
 ### Changed
-- `mbp132-setup.sh` installs drivers from the vendored tree: the Touch Bar driver is copied to `/usr/src/appleibridge-<version>` and rebuilt through DKMS on every run; the audio driver is copied to `/usr/local/src/mbp132-setup` with a fingerprint file so unchanged installs are skipped. The old clone-based flow was removed.
+- `mbp132-setup-cli.sh` installs drivers from the vendored tree: the Touch Bar driver is copied to `/usr/src/appleibridge-<version>` and rebuilt through DKMS on every run; the audio driver is copied to `/usr/local/src/mbp132-setup` with a fingerprint file so unchanged installs are skipped. The old clone-based flow was removed.
 - The sleep hook disables wake sources by kind (`LID*`, `XHC*`, `ARPT`, `RP*`) instead of a fixed 13,2 list.
 - Applied the `struct tb_touch` build fix to the vendored driver as a committed patch and bumped `PACKAGE_VERSION` to `0.1.1` to mark the fork.
 
