@@ -770,6 +770,8 @@ class Installer(Adw.ApplicationWindow):
         self.progress_bar.set_fraction(0.02)
         self.log_buffer.set_text("")
         self.running = True
+        self.exited = self.eof = self.started = False
+        self.pending = b""
         launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE)
         launcher.set_cwd(ROOT)
         try:
@@ -777,24 +779,39 @@ class Installer(Adw.ApplicationWindow):
         except GLib.Error as error:
             self._finished(False, error.message)
             return
-        self.stream = Gio.DataInputStream.new(self.proc.get_stdout_pipe())
-        self._read_line()
-        self.proc.wait_check_async(None, self._on_exit)
+        self.stream = self.proc.get_stdout_pipe()
+        self._read()
+        self.proc.wait_async(None, self._on_exit)
 
-    def _read_line(self):
-        self.stream.read_line_async(GLib.PRIORITY_DEFAULT, None, self._on_line)
+    def _read(self):
+        self.stream.read_bytes_async(65536, GLib.PRIORITY_DEFAULT, None, self._on_data)
 
-    def _on_line(self, stream, result):
+    def _on_data(self, stream, result):
+        if stream is not self.stream:
+            return
         try:
-            data, _length = stream.read_line_finish(result)
+            data = stream.read_bytes_finish(result).get_data()
         except GLib.Error:
+            data = None
+        if not data:  # End of output. read_line_finish can't tell it from an empty line.
+            if self.pending:
+                self._on_line(self.pending)
+                self.pending = b""
+            self.eof = True
+            if self.exited:
+                self._report_exit(self.proc)
             return
-        if data is None:
-            return
-        line = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", data.decode("utf-8", "replace")).rstrip("\r")
+        *lines, self.pending = (self.pending + data).split(b"\n")
+        for raw in lines:
+            self._on_line(raw)
+        self._read()
+
+    def _on_line(self, raw):
+        line = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", raw.decode("utf-8", "replace")).rstrip("\r")
+        self.started = self.started or line.startswith(("==>", "!!"))
         self._log(line)
-        self._phase(line)
-        self._read_line()
+        if self.running:
+            self._phase(line)
 
     def _log(self, line):
         end = self.log_buffer.get_end_iter()
@@ -817,15 +834,26 @@ class Installer(Adw.ApplicationWindow):
                 self.progress_sub.set_label(text)
 
     def _on_exit(self, proc, result):
-        try:
-            proc.wait_check_finish(result)
+        proc.wait_finish(result)
+        # Output can still be in the pipe. Wait for it, but not forever: something
+        # the script started could keep the pipe open.
+        self.exited = True
+        if self.eof:
+            self._report_exit(proc)
+        else:
+            GLib.timeout_add_seconds(2, self._report_exit, proc)
+
+    def _report_exit(self, proc):
+        if proc is not self.proc or not self.running:
+            return GLib.SOURCE_REMOVE
+        status = proc.get_exit_status() if proc.get_if_exited() else -1
+        if proc.get_successful():
             self._finished(True)
-        except GLib.Error:
-            status = proc.get_exit_status() if proc.get_if_exited() else -1
-            if status in (126, 127):
-                self._finished(False, "Password dialog was cancelled. Nothing was changed.", cancelled=True)
-            else:
-                self._finished(False, f"The installer stopped with an error (code {status}). See the log above.")
+        elif status in (126, 127) and not self.started:  # pkexec's codes, but the script can exit with them too.
+            self._finished(False, "The password prompt was cancelled or failed. Nothing was changed.", cancelled=True)
+        else:
+            self._finished(False, f"The installer stopped with an error (code {status}). See the log above.")
+        return GLib.SOURCE_REMOVE
 
     def _finished(self, success, message="", cancelled=False):
         self.running = False
