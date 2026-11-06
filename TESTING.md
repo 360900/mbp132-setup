@@ -23,6 +23,8 @@ sudo ./mbp132-setup-cli.sh [--iso] [--windows-keys] [--wifi-mac aa:bb:cc:dd:ee:f
 reboot
 ```
 
+The graphical installer needs the same checks. Run `./mbp132-setup.sh`, go through every page, cancel the password prompt once (it must say nothing was changed), then install. The command on the last page must match what ran.
+
 ## Checks
 
 1. `dkms status`: `appleibridge` and `snd_hda_macbookpro` show `installed` for every kernel, including LTS.
