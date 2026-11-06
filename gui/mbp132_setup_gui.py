@@ -405,6 +405,7 @@ class Installer(Adw.ApplicationWindow):
         self.iso = "iso_layout=1" in applespi
         self.fn_swap = "fnremap=1" in applespi
         self.windows = "lv3:rwin_switch" in read("/etc/xdg/kxkbrc")
+        self.keyboard_before = (self.iso, self.fn_swap, self.windows)
         self.country = detect_country()
         self.mac = ""
         self.force = False
@@ -479,7 +480,7 @@ class Installer(Adw.ApplicationWindow):
         elif page is getattr(self, "wifi_page", None):
             ok = (bool(self.country) or not self.uses_country) and not (self.mac and valid_mac(self.mac))
         elif page is self.review_page:
-            ok = any(self.parts.values()) or self.iso or self.fn_swap or self.windows
+            ok = any(self.parts.values()) or self.iso or self.fn_swap or self.windows or self.keyboard_turned_off()
         self.next.set_sensitive(ok)
 
     def _on_next(self, *_):
@@ -702,8 +703,12 @@ class Installer(Adw.ApplicationWindow):
         page.add(box)
         return page
 
+    def keyboard_turned_off(self):
+        now = (self.iso, self.fn_swap, self.windows)
+        return any(was and not on for was, on in zip(self.keyboard_before, now))
+
     def args(self):
-        out = []
+        out = ["--reset-keyboard"] if self.keyboard_turned_off() else []
         if self.iso:
             out.append("--iso")
         if self.fn_swap:
