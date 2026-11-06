@@ -447,13 +447,18 @@ check_t1() {
         fi
     fi
     if ! { [[ -d "$T1_BACKUP" ]] && diff -rq "$src" "$T1_BACKUP" >/dev/null 2>&1; }; then
-        rm -rf "$T1_BACKUP"
         mkdir -p "$(dirname "$T1_BACKUP")"
-        if cp -r "$src" "$T1_BACKUP"; then
+        rm -rf "$T1_BACKUP.new"
+        if [[ -z "$(ls -A "$src")" ]]; then
+            warn "$src is empty, so the T1 firmware was not backed up. Restore it before rebooting."
+        elif cp -r "$src" "$T1_BACKUP.new"; then
+            # Only now: this may be the last good copy.
+            rm -rf "$T1_BACKUP"
+            mv "$T1_BACKUP.new" "$T1_BACKUP"
             log "Backed up the T1 firmware to $T1_BACKUP; keep a copy off this machine too."
         else
             warn "Could not back up $src to $T1_BACKUP; back it up yourself."
-            rm -rf "$T1_BACKUP"
+            rm -rf "$T1_BACKUP.new"
         fi
     fi
     if [[ -n $tmp ]]; then
