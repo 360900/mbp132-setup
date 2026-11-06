@@ -10,9 +10,7 @@
 #                 that stay audible at low settings
 #   - Touch Bar:  iBridge / Touch Bar / ambient light sensor driver, via DKMS,
 #                 with the fixes needed on 6.15+ / 7.x kernels
-#   - Sleep:      s2idle on the MacBookPro13,2 (deep / S3 breaks Wi-Fi until
-#                 reboot), deep on other models; USB-C ports survive sleep;
-#                 hibernation is hidden
+#   - Sleep:      reliable suspend (deep / S3); hibernation is hidden
 #   - Keyboard:   optional ISO layout fix, Fn <-> left Ctrl swap and
 #                 Windows-style modifier keys with a working AltGr (KDE)
 #   - iPhone:     usbmuxd (USB tethering), without it turning the Touch Bar off
@@ -77,7 +75,7 @@ F_KBD_MODPROBE=/etc/modprobe.d/mbp132-applespi.conf
 F_UDEV=/etc/udev/rules.d/99-mbp132-sleep.rules
 F_HOOK=/usr/lib/systemd/system-sleep/mbp132-sleep-fix
 F_SLEEPCONF=/etc/systemd/sleep.conf.d/mbp132-no-hibernate.conf
-F_SLEEP_MODE=/etc/systemd/sleep.conf.d/mbp132-s2idle.conf
+F_SLEEP_MODE=/etc/systemd/sleep.conf.d/mbp132-s2idle.conf # older versions only
 F_KXKB_DEFAULT=/etc/xdg/kxkbrc
 F_WIFI_DISPATCH=/etc/NetworkManager/dispatcher.d/99-mbp132-wifi-powersave
 F_WIFI_NMCONF=/etc/NetworkManager/conf.d/mbp132-wifi.conf
@@ -94,8 +92,6 @@ F_VOLUME_UDEV=/etc/udev/rules.d/90-mbp132-volume.rules
 VOLUME_PROFILE_SET=/run/mbp132-setup/acp-default.conf
 # Models whose BCM43602 calibration file (firmware/) has been tested.
 WIFI_NVRAM_MODELS=" MacBookPro13,2 "
-# Models where deep sleep breaks Wi-Fi and s2idle has been tested instead.
-S2IDLE_MODELS=" MacBookPro13,2 "
 # Firmware country revisions that open more 5 GHz channels than revision 0.
 declare -A WIFI_COUNTRY_REV=([TR]=1)
 XKB_OPTIONS="altwin:swap_lalt_lwin,lv3:rwin_switch"
@@ -554,19 +550,9 @@ AllowSuspendThenHibernate=no
 AllowHybridSleep=no
 EOF
 
-    # Deep sleep leaves the BCM43602 rejecting joins until reboot (NOTES.md).
-    # systemd-sleep writes this to /sys/power/mem_sleep; no boot option needed.
-    if [[ $S2IDLE_MODELS == *" $(cat /sys/class/dmi/id/product_name 2>/dev/null) "* ]]; then
-        write_file "$F_SLEEP_MODE" 644 <<'EOF'
-# Installed by mbp132-setup.sh: deep sleep breaks Wi-Fi until reboot on this model
-[Sleep]
-MemorySleepMode=s2idle
-EOF
-    else
-        rm -f "$F_SLEEP_MODE"
-        if grep -q "mem_sleep_default=s2idle" /proc/cmdline; then
-            warn "Your kernel command line forces s2idle. This model is tested with 'deep' sleep only."
-        fi
+    rm -f "$F_SLEEP_MODE" # older versions used s2idle: about 14% battery per hour
+    if grep -q "mem_sleep_default=s2idle" /proc/cmdline; then
+        warn "Your kernel command line forces s2idle. It drains about 14% battery per hour on the 13,2; this setup is tested with 'deep'."
     fi
     udevadm control --reload || true
 }
@@ -824,7 +810,7 @@ report_body() {
 
     printf '\n## Files installed by this script\n'
     for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
-             "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
+             "$F_SLEEPCONF" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
              "$VOLUME_PROFILE_SET" "$(wifi_nvram_file)" "$T1_BACKUP"; do
         [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
     done
@@ -956,7 +942,7 @@ cat <<'EOF'
 
 After rebooting:
   - Touch Bar should light up; hold Fn for F1-F12.
-  - Suspend: close the lid; opening it wakes the Mac (if not, press a key).
+  - Suspend: close the lid; press a key or the power button to wake (opening the lid does not).
   - AltGr (with --windows-keys): right Command or right Option, e.g. AltGr+Q = @ on Turkish Q.
   - After each kernel update, check that both drivers rebuilt:  dkms status
 Tips:

@@ -39,9 +39,9 @@ reboot
    - After a suspend, the speakers play without a reboot, and `journalctl -k -b | grep 'setting up codec and amps again'` shows one line per resume.
    - Volume, after a reboot: at 5-10% the speakers are quiet but audible and the steps feel even; 0% is silent. `wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.2; amixer -c0 sget PCM` shows step 122 (of 255), and `aplay -v -D front:CARD=PCH,DEV=0 /dev/zero` shows `min_dB: -40`.
 4. Suspend, three times:
-   - On the charger and on battery: close the lid, wait 1 minute, open it. It must not wake by itself. If opening the lid does not wake it, press a key.
-   - Check with `journalctl -b -o short-unix | grep -E "PM: suspend (entry|exit)"`; on the 13,2 the entry line says `s2idle`.
-   - After each wake audio, keyboard and trackpad work, and `journalctl -k -b | grep 'Touchbar resumed'` shows a line. With s2idle the Touch Bar stays dark until first touched, then works.
+   - On the charger and on battery: close the lid, wait 1 minute, open it and press a key. If it wakes by itself on the charger with the lid closed, it should go back to sleep by itself.
+   - Check with `journalctl -b -o short-unix | grep -E "PM: suspend (entry|exit)"`; the entry line says `deep`.
+   - After each wake the Touch Bar, audio, keyboard and trackpad work, and `journalctl -k -b | grep 'Touchbar resumed'` shows a line.
    - After a suspend, `grep enabled /proc/acpi/wakeup` lists no `LID*`, `XHC*`, `ARPT` or `RP*` entry, and `SPIT` is enabled.
 5. USB-C after sleep: a USB stick in a USB-C port is detected without replugging.
 6. Wi-Fi:

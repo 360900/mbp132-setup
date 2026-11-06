@@ -13,8 +13,8 @@ One script to make Linux usable on the **MacBook Pro 13" 2016 with Touch Bar (Ma
 | Volume | ✅ even loudness steps, audible from 5% |
 | Touch Bar (Esc, media keys, F1–F12 with Fn) | ✅ via a patched [iBridge driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver) |
 | Ambient light sensor | ✅ (apple-ib-als) |
-| Suspend (lid close / idle / manual) | ⚠️ s2idle on the 13,2 (deep sleep breaks Wi-Fi), drains about 14% per hour; deep on other models |
-| USB-C ports after sleep | ✅ Thunderbolt driver is reloaded around sleep |
+| Suspend (lid close / idle / manual) | ✅ deep sleep. Sleep can still end early on the charger; Wi-Fi survives it, and with the lid closed it went back to sleep by itself |
+| USB-C ports after sleep | ⚠️ USB devices work, but the ports can fall back to USB 2 and hub Ethernet can disappear until reboot |
 | Windows-style modifiers + AltGr (KDE) | ✅ optional, `--windows-keys` |
 | Hibernation | ❌ hidden; it does not resume on this model |
 | Wi-Fi (BCM43602), 2.4 GHz | ✅ calibration file, power saving off |
@@ -47,7 +47,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 - In `auto`/`display` mode the driver calls `usb_set_configuration()` inside its own probe and deadlocks, which hangs modprobe and boot. The script sets `tb_mode_param=keyboard`, which keeps the current USB configuration.
 - `hid_sensor_hub` claims the second iBridge interface first, leaving the Touch Bar dark. The script blacklists it; `apple-ib-als` takes over the light sensor.
 - usbmuxd up to 1.1.1 (the version Arch ships) switches the iBridge to USB configuration 0, which turns off the Touch Bar, camera and light sensor. A udev rule switches it back to 1, so the script installs usbmuxd (needed for iPhone USB tethering) along with it.
-- USB keeps power in s2idle, so waking calls the driver's `resume`, which it did not have. The vendored driver now has one. The Touch Bar stays dark after waking until you touch it.
+- USB keeps power in s2idle, so waking calls the driver's `resume`, which it did not have. The vendored driver now has one. The script uses deep sleep, where this does not matter.
 - At every power-on the Mac loads the T1 chip's firmware from `EFI/APPLE/EMBEDDEDOS/` on the EFI partition. Without it the T1 shows up as `05ac:1281` (recovery mode) and the Touch Bar, camera, Touch ID and light sensor stop working; only reinstalling macOS restores it. The script backs that folder up to `/var/lib/mbp132-setup/t1-firmware/`, also from an unmounted macOS EFI partition (mounted read-only for the copy). **Never delete or reformat the EFI partition.**
 
 **Audio**
@@ -55,10 +55,8 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 - The driver has no hardware volume, so the slider drives alsa-lib's `PCM` software volume (-51..0 dB) through PipeWire's cubic curve: everything below about 20% is under -42 dB and inaudible on these speakers. The script gives the software volume a -40..0 dB range and tells PipeWire it spans -80..0 dB (an ACP `DecibelFix` in a profile set used only for the built-in card), which halves the dB of the cubic curve: 5% is -39 dB, 10% -30 dB, 20% -21 dB, 50% -9 dB, 0% silent. Plain even dB steps (tried first) felt exponential. `alsa-restore.service` empties `/var/lib/alsa/cardN.conf.d/` at every boot, so `mbp132-volume.service` writes the files after it.
 
 **Suspend**
-- The 13,2 uses s2idle, which drains about 14% per hour on battery (100% to empty in about 7 hours). Shut down or stay on the charger for long breaks. I'm working on a fix.
 - The Apple S3X NVMe and the Thunderbolt xHCI controllers fail to resume from `d3cold`, so d3cold is disabled for all PCI devices before each sleep.
-- On the 13,2, deep sleep (S3) on battery leaves Wi-Fi rejecting every join until reboot, and deep sleep on the charger often ends within a second. The script sets `MemorySleepMode=s2idle` there. See [`NOTES.md`](NOTES.md#wi-fi-after-sleep).
-- Instant wake-ups come from ACPI wake sources: the lid sensor `LID0`, the USB controllers `XHC*`, Wi-Fi `ARPT`, and the PCIe root ports `RP*` (`RP01/05/09/12` on the 13,2; the names differ per model). These are disabled before each sleep; keyboard/trackpad wake (`SPIT`) stays on. Opening the lid still wakes the 13,2; if it does not, press a key.
+- Instant wake-ups come from ACPI wake sources: the lid sensor `LID0`, the USB controllers `XHC*`, Wi-Fi `ARPT`, and the PCIe root ports `RP*` (`RP01/05/09/12` on the 13,2; the names differ per model). These are disabled before each sleep; keyboard/trackpad wake (`SPIT`) stays on. So open the lid and **press a key or the power button** to wake.
 - The Thunderbolt driver's suspend/resume fails, and the USB-C ports' USB controllers vanish until reboot. The sleep hook unloads `thunderbolt` before sleep and loads it again after waking.
 
 **Wi-Fi (BCM43602, board 0x157)**
@@ -86,7 +84,6 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /usr/lib/systemd/system-sleep/mbp132-wifi-reload (13,2 only)
 /usr/local/libexec/mbp132-wifi-femctrl           (13,2 only)
 /etc/systemd/sleep.conf.d/mbp132-no-hibernate.conf
-/etc/systemd/sleep.conf.d/mbp132-s2idle.conf (13,2 only)
 /etc/xdg/kxkbrc                             (only with --windows-keys, if not already present)
 /etc/NetworkManager/dispatcher.d/99-mbp132-wifi-powersave
 /etc/NetworkManager/conf.d/mbp132-wifi.conf
