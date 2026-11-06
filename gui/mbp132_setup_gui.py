@@ -845,6 +845,7 @@ class Installer(Adw.ApplicationWindow):
                   ("Sleep:", 0.66, "Setting up sleep"),
                   ("Wi-Fi:", 0.72, "Setting up Wi-Fi"),
                   ("Rebuilding initramfs", 0.78, "Rebuilding the boot image"),
+                  ("GRUB:", 0.95, "Updating the boot menu"),
                   ("All done", 1.0, "Finishing"))
         for needle, fraction, text in phases:
             if needle in line:
