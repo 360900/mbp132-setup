@@ -5,10 +5,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUI="$SCRIPT_DIR/gui/mbp132_setup_gui.py"
-DEPS=(python python-gobject python-cairo gtk4 libadwaita)
+DEPS=(python python-gobject python-cairo gtk4 libadwaita polkit)
 
 die() { printf 'xx  %s\n' "$*" >&2; exit 1; }
 
+(( $# == 0 )) || die "Options go to the command-line script: sudo ./mbp132-setup-cli.sh $*"
 [[ $EUID -ne 0 ]] || die "Run this as your normal user, without sudo. It asks for your password when it installs."
 [[ -n ${WAYLAND_DISPLAY:-}${DISPLAY:-} ]] || die "No desktop session found. Use ./mbp132-setup-cli.sh instead."
 [[ -f $GUI ]] || die "Missing $GUI. Run this from a clone of the repository."
