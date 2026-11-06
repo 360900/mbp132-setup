@@ -19,9 +19,9 @@ Test system: CachyOS, kernel 7.3.1 (LTS 6.18 also installed), GRUB, mkinitcpio w
 
 ## Suspend / resume
 
-- The 13,2 uses `s2idle`, because `deep` (S3) breaks Wi-Fi (see [Wi-Fi after sleep](#wi-fi-after-sleep)). Set with `MemorySleepMode=s2idle` in `sleep.conf.d`, so no boot option is needed.
-- `s2idle` once broke the Touch Bar and audio. With the current drivers audio is fine, and the Touch Bar needed a `.resume` handler (`patches/0004`). It stays dark after waking until first touched; cause not investigated. Separately, the driver turns it off after 5 idle minutes (`idle_timeout=300`).
-- **Instant wake-ups:** these come from the ACPI wake sources `LID0`, `XHC1`–`XHC3`, `ARPT` (Wi-Fi) and the PCIe root ports `RP01/05/09/12`. Disable them before each sleep, but keep `SPIT` (keyboard and trackpad) enabled. Opening the lid still wakes the machine with `LID0` disabled, in both sleep modes.
+- `deep` (S3) works with the fixes below. `s2idle` works too, but drains about 14% of the battery per hour (see [Wi-Fi after sleep](#wi-fi-after-sleep)).
+- In `s2idle` audio is fine now, and the Touch Bar needed a `.resume` handler (`patches/0004`). It stays dark after waking until first touched; cause not investigated. Separately, the driver turns it off after 5 idle minutes (`idle_timeout=300`).
+- **Instant wake-ups:** these come from the ACPI wake sources `LID0`, `XHC1`–`XHC3`, `ARPT` (Wi-Fi) and the PCIe root ports `RP01/05/09/12`. Disable them before each sleep, but keep `SPIT` (keyboard and trackpad) enabled. So open the lid and press a key or the power button to wake.
 - **d3cold:** keep every PCI device out of `d3cold`. The Apple S3X NVMe (`106b:2003`) and the Thunderbolt xHCI controllers fail to resume from it.
 - **Thunderbolt:** suspend/resume of the `thunderbolt` driver fails, and the USB-C ports' USB controllers disappear until reboot. Unload the module before sleep and load it after waking.
 - **Hibernation:** resume fails with a black screen, so it is disabled with `AllowHibernation=no`, `AllowSuspendThenHibernate=no` and `AllowHybridSleep=no`.
@@ -75,7 +75,9 @@ Do not commit Apple or Broadcom files, or data extracted from them, to this repo
 
 Measured on one 13,2, kernel 7.3.1, firmware 7.35.177.61, 2026-11-04 and 05.
 
-**Failure:** after a bad sleep every join fails about 100 ms after the request: firmware `SET_SSID status=1`, `ASSOC-REJECT status_code=16`, no LINK event. The router still shows up in scans. 5 GHz always fails and 2.4 GHz often does. NetworkManager then asks for the password and can give up with `no-secrets`. Only a reboot clears it. The BSSID in the reject is often zero or the last network used, so it says nothing about which radio was tried.
+**Failure:** after S3 cuts the card's power, every 5 GHz join fails about 100 ms after the request: firmware `SET_SSID status=1`, `ASSOC-REJECT status_code=16`, no LINK event. The router still shows up in scans, and 2.4 GHz often works. NetworkManager then asks for the password and can give up with `no-secrets`. Only a reboot clears it. The BSSID in the reject is often zero or the last network used, so it says nothing about which radio was tried.
+
+**Cause:** the Mac's firmware sets ChipCommon `chipcontrol` bit 4 (FEMCTRL) at boot: `0x01400090` here. S3 with power loss resets the register to `0x00000000`, and no reload, bus reset or power-off sets it again. **Fix:** with the driver unbound, set BAR0 window `0x80` to `0x18000000`, OR `0x10` into offset `0x28`, restore the window, load the driver. Found by makoni, bjhinkle, acmccubbin and others in [omarchy PR 11570](https://github.com/omacom/omarchy/pull/11570), with a kernel patch on linux-wireless. This card, `106b:0157` rev 2, read the same values.
 
 | Sleep, lid closed unless noted | 5 GHz broken afterwards |
 |---|---|
@@ -86,13 +88,15 @@ Measured on one 13,2, kernel 7.3.1, firmware 7.35.177.61, 2026-11-04 and 05.
 | `deep` that bounces, charger, lid open | 5 of 5 |
 | `s2idle`, battery | 0 of 2, rejoined in 3-4 s, 0 rejects |
 | `s2idle`, charger | 0 of 2, rejoined in 3-4 s, 0 rejects, no bounce |
+| `deep` with the fix, battery | 0 of 3, register read `0`, rejoined in about 5 s, 0 rejects |
+| `deep` with the fix, charger | 0 of 2, one a 6 s lid-closed bounce (register `0`), one 536 s (register kept), 0 rejects |
 | Windows on this Mac, `S3`, battery | 0 of 3 |
 
-**`s2idle` drain:** 100% to empty in about 7 hours on battery, lid closed, no wakes (about 5.5 W). Not tested with `s2idle`: 2.4 GHz, USB-C after waking. Failure cause unknown: the state seems to be outside the card, or the firmware handles something the platform does badly.
+**`s2idle` drain:** 100% to empty in about 7 hours on battery, lid closed, no wakes (about 5.5 W). The cores sit in C10 but the package stays at PC3, the kernel logs `did not enter Package C10`, and the firmware does not advertise low-power idle (`LOW_POWER_S0_IDLE=0`). The Thunderbolt chains hold the package at PC3. Letting them runtime suspend reached PC10 but only cut drain to about 5 W, and Thunderbolt then fails to reload after waking, freezing the session about 15 s. The T1 USB device is about 0.25 W. `deep` drain has not been measured.
 
 **Bounces:** on the charger, `deep` often enters and leaves S3 within about 1 ms (2-6 of 8 per run), and charger presence was the only thing that changed the rate (battery: 0 of 9). Side, hub, full versus charging, `macsmc` drivers and Linux wake settings made no difference. Wake reason not found.
 
-**Tried in `deep`, did not help:**
+**Tried in `deep` before the cause was known, did not help:**
 
 - Driver reload, wpa_supplicant restart, cfg80211 reload, PCI reset, ASPM off, `mpc=0`, pre-tuning the channel, enabling Bluetooth.
 - Loading the driver 30 s after waking.
@@ -106,11 +110,14 @@ Measured on one 13,2, kernel 7.3.1, firmware 7.35.177.61, 2026-11-04 and 05.
 - Without a reload around sleep, firmware commands time out after waking and scans return -5 (2 of 2). Hence `mbp132-wifi-reload`.
 - `acpi_osi=!Darwin` kills the keyboard and trackpad at boot: `SPIT._CRS` returns a different buffer and `applespi` times out. It also logs ACPI errors in Thunderbolt setup. Do not use it.
 - Router channels matter for testing: on radar ch 56 even a fresh boot failed 2 of 3 joins, on ch 40 and 48 it did not. This is separate from the failure above.
+- Battery level can read higher after a short sleep, so it can't measure drain over minutes. KDE's idle timer can also suspend the machine in the middle of a test.
 - Thunderbolt: `timeout resetting host router` on every `deep` resume, even with only a charger connected. Not seen after `s2idle`.
 
 **Open:**
 
 - `macsmc-ac` `online` goes stale if the charger changes during sleep; `EC.EACP` stays right. Seen in `deep`.
+- USB-C after `deep`: both Thunderbolt controllers can fail with `D3cold to D0, device inaccessible` and `timeout resetting host router`. A hub then appears on the chipset's USB 2 port: drives work, its Ethernet does not, until reboot. Omarchy PR 11570 has a remove and rescan hook and kernel patches, not tried here.
+- Sleep can still end within seconds on the charger.
 - NetworkManager's `no-secrets` give-up after repeated rejects.
 
 Never leave the brcmfmac debug mask on across a sleep: one such sleep ended in a reboot.
