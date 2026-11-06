@@ -921,6 +921,13 @@ uninstall() {
     # versions of this script left in /usr/local/src/mbp132-setup.
     rm -rf "$SRC_DIR"
     rebuild_initramfs
+    if user_has_our_xkb_options; then
+        warn "Your KDE keyboard options are still set. Clear them in System Settings > Keyboard > Key Bindings."
+    fi
+    if has_usb 05ac 8600 && pacman -Q usbmuxd >/dev/null 2>&1; then
+        warn "usbmuxd is still installed. Without the removed udev rule it can turn off the Touch Bar, camera and light sensor."
+        warn "If nothing else needs it: sudo pacman -Rs usbmuxd"
+    fi
     log "Done. Reboot to finish."
 }
 
