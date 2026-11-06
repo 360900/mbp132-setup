@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Graphical installer for mbp132-setup. Collects choices and runs mbp132-setup-cli.sh."""
+import functools
 import math
 import os
 import re
@@ -166,6 +167,7 @@ def has_pci(vendor, device):
     return any(read(f"{base}/{n}/vendor") == f"0x{vendor}" and read(f"{base}/{n}/device") == f"0x{device}" for n in names)
 
 
+@functools.cache
 def countries():
     rows = []
     for line in read("/usr/share/zoneinfo/iso3166.tab").splitlines():
