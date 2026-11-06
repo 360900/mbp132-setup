@@ -398,6 +398,7 @@ class Installer(Adw.ApplicationWindow):
         self.t1_recovery = has_usb("05ac", "1281")
         self.has_wifi = has_pci("14e4", "43ba")
         self.status = MODELS.get(self.model)
+        self.uses_country = self.model in WIFI_NVRAM_MODELS  # The country only goes in the calibration file.
         applespi = read("/etc/modprobe.d/mbp132-applespi.conf")
         self.iso = "iso_layout=1" in applespi
         self.fn_swap = "fnremap=1" in applespi
@@ -474,7 +475,7 @@ class Installer(Adw.ApplicationWindow):
         if page is self.welcome_page:
             ok = bool(self.status) or self.force
         elif page is getattr(self, "wifi_page", None):
-            ok = bool(self.country) and not (self.mac and valid_mac(self.mac))
+            ok = (bool(self.country) or not self.uses_country) and not (self.mac and valid_mac(self.mac))
         elif page is self.review_page:
             ok = any(self.parts.values()) or self.iso or self.fn_swap or self.windows
         self.next.set_sensitive(ok)
@@ -583,7 +584,36 @@ class Installer(Adw.ApplicationWindow):
     def _wifi(self):
         if not self.has_wifi:
             return None
-        page = self.wifi_page = Page("Wi-Fi country", "Decides which channels your Wi-Fi may use, so 5 GHz works with your router.")
+        if self.uses_country:
+            page = Page("Wi-Fi country", "Decides which channels your Wi-Fi may use, so 5 GHz works with your router.")
+            self._country_picker(page)
+        else:
+            page = Page("Wi-Fi address", "There is no tested calibration file for this Mac yet, so Wi-Fi stays 2.4 GHz only.")
+        self.wifi_page = page
+
+        entry = Adw.EntryRow(title="Real Wi-Fi MAC address (optional)")
+        entry.add_prefix(icon_tile("network-wireless-symbolic"))
+        hint = label("Without it a stable made-up address is used, which works fine. macOS shows the real one with "
+                     "ifconfig en0.", ["caption-text"])
+
+        def on_mac(row):
+            self.mac = row.get_text().strip()
+            error = valid_mac(self.mac) if self.mac else None
+            if error:
+                row.add_css_class("error")
+                hint.set_label(error)
+            else:
+                row.remove_css_class("error")
+                hint.set_label("Without it a stable made-up address is used, which works fine. macOS shows the real "
+                               "one with ifconfig en0.")
+            self._update_next()
+
+        entry.connect("changed", on_mac)
+        page.add(boxed(entry))
+        page.add(hint)
+        return page
+
+    def _country_picker(self, page):
         names = dict(countries())
         current = Adw.ActionRow(use_markup=False)
         current.add_prefix(icon_tile("emblem-ok-symbolic"))
@@ -628,35 +658,15 @@ class Installer(Adw.ApplicationWindow):
         scroller.add_css_class("boxed-list")
         page.add(scroller)
 
-        entry = Adw.EntryRow(title="Real Wi-Fi MAC address (optional)")
-        entry.add_prefix(icon_tile("network-wireless-symbolic"))
-        hint = label("Without it a stable made-up address is used, which works fine. macOS shows the real one with "
-                     "ifconfig en0.", ["caption-text"])
-
-        def on_mac(row):
-            self.mac = row.get_text().strip()
-            error = valid_mac(self.mac) if self.mac else None
-            if error:
-                row.add_css_class("error")
-                hint.set_label(error)
-            else:
-                row.remove_css_class("error")
-                hint.set_label("Without it a stable made-up address is used, which works fine. macOS shows the real "
-                               "one with ifconfig en0.")
-            self._update_next()
-
-        entry.connect("changed", on_mac)
-        page.add(boxed(entry))
-        page.add(hint)
-        return page
-
     def _components(self):
         page = Page("What to install", "Everything is on by default, and you can run this again at any time.")
         items = [
             ("audio", "audio-speakers-symbolic", "Audio", "Speakers and microphone driver, even volume steps", True),
             ("touchbar", "input-keyboard-symbolic", "Touch Bar", "Touch Bar and ambient light sensor driver", self.has_t1),
             ("sleep", "weather-clear-night-symbolic", "Sleep", "Reliable suspend. Press a key or the power button to wake", True),
-            ("wifi", "network-wireless-symbolic", "Wi-Fi", "Calibration, 5 GHz, and recovery after sleep", self.has_wifi),
+            ("wifi", "network-wireless-symbolic", "Wi-Fi",
+             "Calibration, 5 GHz, and recovery after sleep" if self.uses_country else "Power saving off and a stable address",
+             self.has_wifi),
         ]
         rows = []
         for key, icon, title, subtitle, available in items:
@@ -707,7 +717,7 @@ class Installer(Adw.ApplicationWindow):
         if not self.parts["wifi"] and self.has_wifi:
             out.append("--no-wifi")
         if self.parts["wifi"] and self.has_wifi:
-            if self.country:
+            if self.country and self.uses_country:
                 out += ["--wifi-country", self.country]
             if self.mac:
                 out += ["--wifi-mac", self.mac.lower()]
@@ -729,7 +739,8 @@ class Installer(Adw.ApplicationWindow):
              ", ".join(n for f, n in ((self.windows, "Windows-style"), (self.fn_swap, "Fn and Ctrl swapped")) if f) or "Mac defaults"),
         ]
         if self.has_wifi and self.parts["wifi"]:
-            rows.append(("network-wireless-symbolic", "Wi-Fi country", names.get(self.country, self.country)))
+            if self.uses_country:
+                rows.append(("network-wireless-symbolic", "Wi-Fi country", names.get(self.country, self.country)))
             rows.append(("network-wireless-symbolic", "Wi-Fi address", self.mac or "Stable made-up address"))
         rows.append(("emblem-system-symbolic", "Installing", ", ".join(on) or "Keyboard settings only"))
         for icon, title, value in rows:
