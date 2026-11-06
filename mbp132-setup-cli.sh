@@ -823,7 +823,7 @@ report_body() {
 
     printf '\n## Files installed by this script\n'
     for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
-             "$F_SLEEPCONF" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
+             "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
              "$VOLUME_PROFILE_SET" "$(wifi_nvram_file)" "$T1_BACKUP"; do
         [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
     done
