@@ -13,7 +13,7 @@ One script to make Linux usable on the **MacBook Pro 13" 2016 with Touch Bar (Ma
 | Volume | ✅ even loudness steps, audible from 5% |
 | Touch Bar (Esc, media keys, F1–F12 with Fn) | ✅ via a patched [iBridge driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver) |
 | Ambient light sensor | ✅ (apple-ib-als) |
-| Suspend (lid close / idle / manual) | ✅ s2idle on the 13,2 (deep sleep breaks Wi-Fi), deep on other models |
+| Suspend (lid close / idle / manual) | ⚠️ s2idle on the 13,2 (deep sleep breaks Wi-Fi), drains about 14% per hour; deep on other models |
 | USB-C ports after sleep | ✅ Thunderbolt driver is reloaded around sleep |
 | Windows-style modifiers + AltGr (KDE) | ✅ optional, `--windows-keys` |
 | Hibernation | ❌ hidden; it does not resume on this model |
@@ -55,6 +55,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 - The driver has no hardware volume, so the slider drives alsa-lib's `PCM` software volume (-51..0 dB) through PipeWire's cubic curve: everything below about 20% is under -42 dB and inaudible on these speakers. The script gives the software volume a -40..0 dB range and tells PipeWire it spans -80..0 dB (an ACP `DecibelFix` in a profile set used only for the built-in card), which halves the dB of the cubic curve: 5% is -39 dB, 10% -30 dB, 20% -21 dB, 50% -9 dB, 0% silent. Plain even dB steps (tried first) felt exponential. `alsa-restore.service` empties `/var/lib/alsa/cardN.conf.d/` at every boot, so `mbp132-volume.service` writes the files after it.
 
 **Suspend**
+- The 13,2 uses s2idle, which drains about 14% per hour on battery (100% to empty in about 7 hours). Shut down or stay on the charger for long breaks. I'm working on a fix.
 - The Apple S3X NVMe and the Thunderbolt xHCI controllers fail to resume from `d3cold`, so d3cold is disabled for all PCI devices before each sleep.
 - On the 13,2, deep sleep (S3) on battery leaves Wi-Fi rejecting every join until reboot, and deep sleep on the charger often ends within a second. The script sets `MemorySleepMode=s2idle` there. See [`NOTES.md`](NOTES.md#wi-fi-after-sleep).
 - Instant wake-ups come from ACPI wake sources: the lid sensor `LID0`, the USB controllers `XHC*`, Wi-Fi `ARPT`, and the PCIe root ports `RP*` (`RP01/05/09/12` on the 13,2; the names differ per model). These are disabled before each sleep; keyboard/trackpad wake (`SPIT`) stays on. Opening the lid still wakes the 13,2; if it does not, press a key.

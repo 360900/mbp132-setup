@@ -88,7 +88,7 @@ Measured on one 13,2, kernel 7.3.1, firmware 7.35.177.61, 2026-11-04 and 05.
 | `s2idle`, charger | 0 of 2, rejoined in 3-4 s, 0 rejects, no bounce |
 | Windows on this Mac, `S3`, battery | 0 of 3 |
 
-Not tested with `s2idle`: 2.4 GHz, USB-C after waking, long sleeps, battery drain. Failure cause unknown: the state seems to be outside the card, or the firmware handles something the platform does badly.
+**`s2idle` drain:** 100% to empty in about 7 hours on battery, lid closed, no wakes (about 5.5 W). Not tested with `s2idle`: 2.4 GHz, USB-C after waking. Failure cause unknown: the state seems to be outside the card, or the firmware handles something the platform does badly.
 
 **Bounces:** on the charger, `deep` often enters and leaves S3 within about 1 ms (2-6 of 8 per run), and charger presence was the only thing that changed the rate (battery: 0 of 9). Side, hub, full versus charging, `macsmc` drivers and Linux wake settings made no difference. Wake reason not found.
 
