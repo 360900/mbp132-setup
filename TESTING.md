@@ -57,9 +57,14 @@ The graphical installer needs the same checks. Run `./mbp132-setup.sh`, go throu
    - `ethtool -P wlan0` shows the `--wifi-mac` address (or the made-up one), not `00:90:4c:0d:f4:3e`.
    - `/usr/lib/firmware/brcm/` holds only `brcmfmac43602-pcie.Apple Inc.-MacBookPro13,2.txt` (ours) and package-owned files.
 7. Keyboard (if used): with `--iso`, the keys next to left Shift and the one below Esc are correct. With `--windows-keys`, AltGr works on right Command and right Option.
-8. Re-run the script: no errors and nothing duplicated.
-9. Kernel update: after `pacman -Syu` installs a new kernel, both drivers rebuild for it (`dkms status`) before rebooting.
-10. `sudo ./mbp132-setup-cli.sh --uninstall`:
+8. GRUB menu:
+   - `macOS` starts macOS once; the next boot returns to GRUB. `/boot/grub/custom.cfg` names the entry whose path is in `efi-boot-device` (macOS: `nvram efi-boot-device`).
+   - The menu has no `EFI BootNext` entries, and `/etc/default/grub` has one `GRUB_DISABLE_BOOTNEXT` line.
+   - Other boot loader in use (systemd-boot, Limine or rEFInd): the script says it skips the boot menu entry, and neither file changes.
+9. Re-run the script: no errors and nothing duplicated.
+10. Kernel update: after `pacman -Syu` installs a new kernel, both drivers rebuild for it (`dkms status`) before rebooting.
+11. `sudo ./mbp132-setup-cli.sh --uninstall`:
     - Every installed file is gone and any moved NVRAM file is restored.
+    - The GRUB entry and setting are gone; other lines in those files remain.
     - It reboots cleanly.
     - Then reinstall.

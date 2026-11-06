@@ -12,6 +12,7 @@ Installed from this tree on a MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-0
 - CI: lint (shellcheck, `bash -n`, Python compile check) and DKMS builds of the vendored Touch Bar driver against Arch, CachyOS and Manjaro kernel packages.
 - `--reset-keyboard`: removes the keyboard settings of earlier runs. The graphical installer uses it when an option is turned off. A user's KDE options are cleared only if they still match the script's.
 - `--report`: writes a hardware and driver report for bug reports on any model, with MAC addresses, serial numbers, Wi-Fi network names, hostname and user name masked.
+- `macOS` entry in the GRUB menu (UEFI `BootNext`, GRUB 2.16), with the firmware entry looked up per machine and GRUB's own `31_efi_bootnext` entries turned off. Skipped if GRUB is not the boot loader. Applied on the MacBookPro13,2 (2026-11-07); booting macOS from it not yet confirmed.
 - Issue template for test reports.
 - Support for the other 2016-2017 MacBook Pros (13,1, 13,3, 14,1, 14,2, 14,3), untested. The Touch Bar driver and Wi-Fi settings are installed only if the T1 chip or a BCM43602 is present.
 - udev rule that switches the iBridge back to USB configuration 1 after usbmuxd <= 1.1.1 sets it to 0.

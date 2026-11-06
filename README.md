@@ -31,6 +31,7 @@ sudo ./mbp132-setup-cli.sh --iso --windows-keys --wifi-country TR/1
 | Hibernation | ❌ hidden; it does not resume on this model |
 | Wi-Fi (BCM43602), 2.4 GHz | ✅ calibration file, power saving off |
 | Wi-Fi (BCM43602), 5 GHz | ✅ on the 13,2: all channels your country allows, radar channels included, 80 MHz 802.11ac (the chip has no 160 MHz). Other models: not yet |
+| macOS in the GRUB menu | ✅ if GRUB is the boot loader and the firmware has a macOS entry; needs GRUB 2.16 |
 | Touch ID | ❌ |
 
 Tested on CachyOS, kernel 7.3.1, GRUB + mkinitcpio + systemd.
@@ -76,6 +77,12 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 - The Mac's firmware sets a chip register bit (`chipcontrol` bit 4) at boot that 5 GHz needs. S3 can clear it, on battery every time, and every 5 GHz join then fails with status 16 until reboot. The sleep hook sets it again before loading the driver. Found by makoni and others in [omarchy PR 11570](https://github.com/omacom/omarchy/pull/11570); a kernel patch is on linux-wireless.
 - Power saving makes the link slow and laggy; a NetworkManager dispatcher script turns it off. NetworkManager uses a stable per-network MAC, or the address given with `--wifi-mac`.
 
+**GRUB menu**
+- GRUB cannot read APFS, so it cannot start macOS itself. The script adds a `macOS` entry that sets the firmware's one-time `BootNext` to the macOS entry and reboots. The next boot is back to normal.
+- The firmware entry number differs per machine, so the script looks it up. Run the script again after an NVRAM reset or a macOS reinstall.
+- GRUB 2.16's own `31_efi_bootnext` entries are turned off (`GRUB_DISABLE_BOOTNEXT=true`): on the 13,2 they listed GRUB itself, stale entries and raw device paths.
+- Skipped when another boot loader is in use. `--uninstall` removes the entry and the setting; other lines in those files are kept.
+
 **Keyboard (`--windows-keys`, KDE Plasma)**
 - XKB options `altwin:swap_lalt_lwin,lv3:rwin_switch`. The left keys become Ctrl, Fn, Win, Alt (in Windows order), and right Command and right Option both act as AltGr. Swapping Alt/Win on *both* sides (`altwin:swap_alt_win`) removes AltGr, because right Option is Linux's AltGr on Mac keyboards. Ctrl+Alt as AltGr is Windows-only and not possible with XKB.
 - It is applied to the user who ran `sudo`, and through `/etc/xdg/kxkbrc` as the default for other users.
@@ -105,6 +112,8 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /var/lib/mbp132-setup/t1-firmware/          (backup of EFI/APPLE/EMBEDDEDOS/; kept on --uninstall)
 /usr/src/appleibridge-0.1.4                   (DKMS source, copied from drivers/apple-ibridge)
 /usr/local/src/mbp132-setup/snd_hda_macbookpro (copied from drivers/snd_hda_macbookpro)
+/boot/grub/custom.cfg                       (GRUB only: macOS entry between BEGIN/END markers)
+/etc/default/grub                           (GRUB only: one marked GRUB_DISABLE_BOOTNEXT line)
 ```
 
 ## Vendored drivers

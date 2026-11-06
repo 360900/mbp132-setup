@@ -124,6 +124,14 @@ Measured on one 13,2, kernel 7.3.1, firmware 7.35.177.61, 2026-11-04 and 05.
 
 Never leave the brcmfmac debug mask on across a sleep: one such sleep ended in a reboot.
 
+## GRUB and macOS
+
+Firmware entries on the test machine (`efibootmgr -v`): `Boot0080` `Mac OS X`, `\0A94...\System\Library\CoreServices\boot.efi`; `Boot0081` `Mac OS X`, a stale `Ata()` path on a partition that no longer exists; `Boot0082` and `BootFFFF`, unnamed, another `\E29E...` folder on the same APFS container. Apple's `efi-boot-device` variable (GUID `7c436110-ab2a-4bbb-a880-fe41995c9f82`) names `\0A94...`, so it identifies the current install.
+
+The stock `31_efi_bootnext` looks for `File(...)` in device paths, which efibootmgr 18 does not print, so its filters do nothing and it offers all of the above, and GRUB itself, as menu entries.
+
+`LoaderInfo` shows the running boot loader (GRUB 2.16 sets it through `25_bli`). `${x,,}` turns `I` into dotless `ı` under `tr_TR`, so the lookup functions run in the C locale; `grub-mkconfig` does not, because its menu labels are translated.
+
 ## Not working / out of scope
 
 - Touch ID.
