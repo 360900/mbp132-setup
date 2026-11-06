@@ -878,7 +878,11 @@ class Installer(Adw.ApplicationWindow):
             self.progress_bar.set_fraction(1.0)
             self.progress_title.set_label("All done")
             self.progress_title.add_css_class("ok-text")
-            self.progress_sub.set_label("Reboot to apply. After that, hold Fn for F1-F12, and press a key to wake from sleep.")
+            self.progress_sub.set_label("After rebooting, hold Fn for F1-F12, and press a key to wake from sleep.")
+            notice = Gio.Notification.new("MacBook Pro setup finished")
+            notice.set_body("Reboot to apply the changes.")
+            notice.add_button("Reboot Now", "app.reboot")
+            self.get_application().send_notification("finished", notice)
             left, right = Gtk.Button(label="Later"), Gtk.Button(label="Reboot Now")
             left.connect("clicked", lambda *_: self.close())
             right.add_css_class("suggested-action")
@@ -921,10 +925,18 @@ class App(Adw.Application):
         Adw.Application.do_startup(self)
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.provider,
                                                   Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        reboot = Gio.SimpleAction.new("reboot", None)
+        reboot.connect("activate", lambda *_: subprocess.Popen(["systemctl", "reboot"]))
+        self.add_action(reboot)
         manager = Adw.StyleManager.get_default()
         manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
         manager.connect("notify::dark", lambda *_: self._style())
         self._style()
+
+    def do_shutdown(self):
+        # Its button needs this process, so it can't outlive the app.
+        self.withdraw_notification("finished")
+        Adw.Application.do_shutdown(self)
 
     def _style(self):
         self.provider.load_from_string(build_css(Adw.StyleManager.get_default().get_dark()))
