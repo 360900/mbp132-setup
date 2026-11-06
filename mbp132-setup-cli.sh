@@ -661,12 +661,14 @@ install_wifi() {
 # is volatile. Only runs with the driver unbound, on this card, and restores the
 # BAR0 window.
 import mmap, os, struct, sys
-D = '/sys/bus/pci/devices/0000:02:00.0'; WIN = 0x80; CC = 0x18000000; REG = 0x28; BIT = 0x10
+PCI = '/sys/bus/pci/devices'; WIN = 0x80; CC = 0x18000000; REG = 0x28; BIT = 0x10
 def die(m):
     print('mbp132-wifi-femctrl: ' + m); sys.exit(1)
+def ids(d):
+    return [open(f'{d}/{n}').read().strip() for n in ('vendor', 'device', 'subsystem_vendor', 'subsystem_device')]
+D = next((f'{PCI}/{n}' for n in os.listdir(PCI) if ids(f'{PCI}/{n}') == ['0x14e4', '0x43ba', '0x106b', '0x0157']), None)
+if D is None: die('card not found')
 if os.path.exists(D + '/driver'): die('driver is bound')
-ids = [open(f'{D}/{n}').read().strip() for n in ('vendor', 'device', 'subsystem_vendor', 'subsystem_device')]
-if ids != ['0x14e4', '0x43ba', '0x106b', '0x0157']: die('unexpected device: ' + ' '.join(ids))
 cfg = os.open(D + '/config', os.O_RDWR)
 rd = lambda o, n: os.pread(cfg, n, o)
 wr = lambda o, b: os.pwrite(cfg, b, o)
