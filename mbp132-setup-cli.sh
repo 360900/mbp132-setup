@@ -31,7 +31,9 @@
 #   --windows-keys   KDE: swap left Option/Command (Windows order Ctrl-Win-Alt)
 #                    and make right Command + right Option act as AltGr;
 #                    applied to the invoking user and as default for new users
-#   --no-audio      skip the audio driver
+#   --reset-keyboard remove the keyboard settings of earlier runs first; the
+#                    three options above then apply on top
+#   --no-audio     skip the audio driver
 #   --no-touchbar    skip the Touch Bar driver
 #   --no-sleep       skip the suspend fixes
 #   --no-wifi        skip the Wi-Fi settings
@@ -103,7 +105,7 @@ declare -A WIFI_COUNTRY_REV=([TR]=1)
 XKB_OPTIONS="altwin:swap_lalt_lwin,lv3:rwin_switch"
 MARKER="# Installed by mbp132-setup.sh"
 
-DO_AUDIO=1 DO_TB=1 DO_SLEEP=1 DO_WIFI=1 OPT_ISO=0 OPT_FNSWAP=0 OPT_WINKEYS=0 FORCE=0 UNINSTALL=0 REPORT=0
+DO_AUDIO=1 DO_TB=1 DO_SLEEP=1 DO_WIFI=1 OPT_ISO=0 OPT_FNSWAP=0 OPT_WINKEYS=0 OPT_RESET_KBD=0 FORCE=0 UNINSTALL=0 REPORT=0
 WIFI_MAC="" WIFI_COUNTRY=""
 HAS_T1=0 T1_RECOVERY=0 HAS_BCM43602=0
 
@@ -468,6 +470,31 @@ check_t1() {
 }
 
 # ---------------------------------------------------------------- keyboard --
+# True if the invoking user's KDE options are exactly the ones this script sets.
+user_has_our_xkb_options() {
+    local user="${SUDO_USER:-}" krc
+    krc="$(command -v kreadconfig6 || command -v kreadconfig5 || true)"
+    [[ -n "$user" && "$user" != root && -n "$krc" ]] || return 1
+    [[ "$(sudo -u "$user" "$krc" --file kxkbrc --group Layout --key Options 2>/dev/null || true)" == "$XKB_OPTIONS" ]]
+}
+
+reset_keyboard() {
+    (( OPT_RESET_KBD )) || return 0
+    log "Keyboard: removing earlier settings"
+    rm -f "$F_KBD_MODPROBE"
+    if [[ -f "$F_KXKB_DEFAULT" ]] && grep -qF "$MARKER" "$F_KXKB_DEFAULT"; then
+        rm -f "$F_KXKB_DEFAULT"
+    fi
+    # Options the user changed since are theirs: leave them.
+    if user_has_our_xkb_options; then
+        local kwc
+        kwc="$(command -v kwriteconfig6 || command -v kwriteconfig5)"
+        sudo -u "$SUDO_USER" "$kwc" --file kxkbrc --group Layout --key Options --delete ''
+        sudo -u "$SUDO_USER" "$kwc" --file kxkbrc --group Layout --key ResetOldOptions --delete ''
+        log "Cleared for user '$SUDO_USER' (takes effect after logging out and in)"
+    fi
+}
+
 install_keyboard() {
     (( OPT_ISO || OPT_FNSWAP )) || return 0
     local opts=""
@@ -903,6 +930,7 @@ while (( $# )); do
         --iso)          OPT_ISO=1 ;;
         --fn-ctrl-swap) OPT_FNSWAP=1 ;;
         --windows-keys) OPT_WINKEYS=1 ;;
+        --reset-keyboard) OPT_RESET_KBD=1 ;;
         --no-audio)     DO_AUDIO=0 ;;
         --no-touchbar)  DO_TB=0 ;;
         --no-sleep)     DO_SLEEP=0 ;;
@@ -943,6 +971,7 @@ fi
 install_deps
 (( DO_AUDIO )) && install_audio
 (( DO_TB ))    && install_touchbar
+reset_keyboard
 install_keyboard
 install_windows_keys
 (( DO_SLEEP )) && install_sleep
