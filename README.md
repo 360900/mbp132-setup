@@ -67,6 +67,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 - The country revision decides which 5 GHz channels work. For Turkey, revision 0 leaves 100-140 off and makes 52-64 passive, so joining a router on a radar channel fails at once (NetworkManager then asks for the password again, which is fine). `TR/1` allows 52-140. The script picks the system's regulatory country and a known-better revision (`--wifi-country CC/REV` overrides). brcmfmac keeps the file's country when it matches the system's.
 - Other `brcmfmac43602-pcie.txt` files shared online (made for other boards) make connecting fail, so the script moves them to `/var/lib/mbp132-setup/nvram-backup/`.
 - The firmware stops answering the driver after waking, and scans fail. On the 13,2 a sleep hook unloads `brcmfmac` before sleep and loads it after waking.
+- The Mac's firmware sets a chip register bit (`chipcontrol` bit 4) at boot that 5 GHz needs. S3 can clear it, on battery every time, and every 5 GHz join then fails with status 16 until reboot. The sleep hook sets it again before loading the driver. Found by makoni and others in [omarchy PR 11570](https://github.com/omacom/omarchy/pull/11570); a kernel patch is on linux-wireless.
 - Power saving makes the link slow and laggy; a NetworkManager dispatcher script turns it off. NetworkManager uses a stable per-network MAC, or the address given with `--wifi-mac`.
 
 **Keyboard (`--windows-keys`, KDE Plasma)**
@@ -83,6 +84,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /etc/udev/rules.d/99-mbp132-sleep.rules
 /usr/lib/systemd/system-sleep/mbp132-sleep-fix
 /usr/lib/systemd/system-sleep/mbp132-wifi-reload (13,2 only)
+/usr/local/libexec/mbp132-wifi-femctrl           (13,2 only)
 /etc/systemd/sleep.conf.d/mbp132-no-hibernate.conf
 /etc/systemd/sleep.conf.d/mbp132-s2idle.conf (13,2 only)
 /etc/xdg/kxkbrc                             (only with --windows-keys, if not already present)

@@ -19,8 +19,8 @@
 #   - Wi-Fi:      BCM43602 calibration file (MacBookPro13,2): 2.4 GHz and all
 #                 5 GHz channels allowed in your country (radar channels
 #                 included), 80 MHz 802.11ac; power saving off; driver reloaded
-#                 around sleep. Other BCM43602 models: no calibration file,
-#                 2.4 GHz only.
+#                 around sleep and 5 GHz restored after it. Other BCM43602
+#                 models: no calibration file, 2.4 GHz only.
 #
 # Tested on: MacBookPro13,2, CachyOS, kernel 7.3.1 (GRUB, mkinitcpio, systemd).
 #
@@ -82,6 +82,7 @@ F_KXKB_DEFAULT=/etc/xdg/kxkbrc
 F_WIFI_DISPATCH=/etc/NetworkManager/dispatcher.d/99-mbp132-wifi-powersave
 F_WIFI_NMCONF=/etc/NetworkManager/conf.d/mbp132-wifi.conf
 F_WIFI_RELOAD=/usr/lib/systemd/system-sleep/mbp132-wifi-reload
+F_WIFI_FEM=/usr/local/libexec/mbp132-wifi-femctrl
 FW_BRCM_DIR=/usr/lib/firmware/brcm
 WIFI_BACKUP=/var/lib/mbp132-setup/nvram-backup
 WIFI_NVRAM_TEMPLATE="$SCRIPT_DIR/firmware/brcmfmac43602-pcie.txt.in"
@@ -193,7 +194,7 @@ check_vendored_drivers() {
 
 install_deps() {
     local pkgs=(dkms base-devel wget patch) k
-    (( DO_WIFI )) && pkgs+=(iw)
+    (( DO_WIFI )) && pkgs+=(iw python)
     # usbmuxd (iPhone tethering and file access). On T1 models it is safe only
     # together with the iBridge udev rule that install_touchbar writes.
     (( DO_TB || !HAS_T1 )) && pkgs+=(usbmuxd)
@@ -584,6 +585,10 @@ EOF
 #  - Power saving makes the link slow and laggy.
 #  - The firmware does not survive sleep: it stops answering the driver after
 #    waking unless brcmfmac is reloaded around it.
+#  - The Mac's firmware sets chipcontrol bit 4 (FEMCTRL) at boot. S3 can clear
+#    the register and nothing else sets it again: every 5 GHz join then fails
+#    with status 16 until reboot, whatever the driver does. Set it after waking,
+#    before the driver loads. Found by makoni and others in omarchy PR 11570.
 validate_wifi_country() {
     local cc=${WIFI_COUNTRY%%/*} rev=
     [[ $WIFI_COUNTRY == */* ]] && rev=${WIFI_COUNTRY#*/}
@@ -657,18 +662,56 @@ install_wifi() {
 
     if [[ $WIFI_NVRAM_MODELS == *" $model "* ]]; then
         install_wifi_nvram
-        write_file "$F_WIFI_RELOAD" 755 <<'EOF'
+        write_file "$F_WIFI_FEM" 755 <<'EOF'
+#!/usr/bin/python3 -I
+# Installed by mbp132-setup.sh: set ChipCommon chipcontrol bit 4 (FEMCTRL) on the
+# BCM43602. S3 can clear it, and 5 GHz joins then fail until reboot. The register
+# is volatile. Only runs with the driver unbound, on this card, and restores the
+# BAR0 window.
+import mmap, os, struct, sys
+D = '/sys/bus/pci/devices/0000:02:00.0'; WIN = 0x80; CC = 0x18000000; REG = 0x28; BIT = 0x10
+def die(m):
+    print('mbp132-wifi-femctrl: ' + m); sys.exit(1)
+if os.path.exists(D + '/driver'): die('driver is bound')
+ids = [open(f'{D}/{n}').read().strip() for n in ('vendor', 'device', 'subsystem_vendor', 'subsystem_device')]
+if ids != ['0x14e4', '0x43ba', '0x106b', '0x0157']: die('unexpected device: ' + ' '.join(ids))
+cfg = os.open(D + '/config', os.O_RDWR)
+rd = lambda o, n: os.pread(cfg, n, o)
+wr = lambda o, b: os.pwrite(cfg, b, o)
+cmd = rd(4, 2); old = rd(WIN, 4)
+wr(4, struct.pack('<H', struct.unpack('<H', cmd)[0] | 2))
+try:
+    wr(WIN, struct.pack('<I', CC))
+    if rd(WIN, 4) != struct.pack('<I', CC): die('window did not stick')
+    fd = os.open(D + '/resource0', os.O_RDWR | os.O_SYNC)
+    m = mmap.mmap(fd, 4096)
+    r32 = lambda o: struct.unpack('<I', m[o:o+4])[0]
+    if r32(0) & 0xffff != 0xaa52: die('not a 43602, chipid=%#x' % r32(0))
+    v = r32(REG)
+    if v & BIT:
+        print('chipcontrol=%#010x, bit 4 already set' % v)
+    else:
+        m[REG:REG+4] = struct.pack('<I', v | BIT)
+        print('chipcontrol=%#010x, set bit 4: %#010x' % (v, r32(REG)))
+    m.close(); os.close(fd)
+finally:
+    wr(WIN, old); wr(4, cmd)
+EOF
+        write_file "$F_WIFI_RELOAD" 755 <<EOF
 #!/bin/sh
 # Installed by mbp132-setup.sh: unload brcmfmac before sleep, load it after
-# waking. Otherwise the firmware stops answering the driver after a resume.
-case "$1" in
+# waking, because the firmware stops answering otherwise. Restore 5 GHz first.
+case "\$1" in
     pre)  modprobe -r brcmfmac_wcc brcmfmac ;;
-    post) modprobe brcmfmac ;;
+    post)
+        $F_WIFI_FEM
+        modprobe brcmfmac
+        ;;
 esac
 exit 0
 EOF
     else
-        rm -f "$F_WIFI_RELOAD"
+        rm -f "$F_WIFI_RELOAD" "$F_WIFI_FEM"
         log "No tested Wi-Fi calibration file for $model; Wi-Fi stays 2.4 GHz only."
     fi
 
@@ -781,7 +824,7 @@ report_body() {
 
     printf '\n## Files installed by this script\n'
     for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
-             "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
+             "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
              "$VOLUME_PROFILE_SET" "$(wifi_nvram_file)" "$T1_BACKUP"; do
         [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
     done
@@ -809,7 +852,7 @@ report() {
 uninstall() {
     log "Removing everything installed by this script"
     rm -f "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
-          "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"
+          "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"
     systemctl disable mbp132-volume.service >/dev/null 2>&1 || true
     rm -f "$F_WP_VOLUME" "$F_VOLUME_HELPER" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" "$VOLUME_PROFILE_SET" \
           /var/lib/alsa/card*.conf.d/"$ALSA_VOLUME_NAME"
