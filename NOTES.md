@@ -94,7 +94,7 @@ Measured on one 13,2, kernel 7.3.1, firmware 7.35.177.61, 2026-11-04 and 05.
 
 **`s2idle` drain:** 100% to empty in about 7 hours on battery, lid closed, no wakes (about 5.5 W). The cores sit in C10 but the package stays at PC3, the kernel logs `did not enter Package C10`, and the firmware does not advertise low-power idle (`LOW_POWER_S0_IDLE=0`). The Thunderbolt chains hold the package at PC3. Letting them runtime suspend reached PC10 but only cut drain to about 5 W, and Thunderbolt then fails to reload after waking, freezing the session about 15 s. The T1 USB device is about 0.25 W. `deep` drain has not been measured.
 
-**Bounces:** on the charger, `deep` often enters and leaves S3 within about 1 ms (2-6 of 8 per run), and charger presence was the only thing that changed the rate (battery: 0 of 9). Side, hub, full versus charging, `macsmc` drivers and Linux wake settings made no difference. Wake reason not found.
+**Bounces:** on the charger, `deep` often enters and leaves S3 within about 1 ms (2-6 of 8 per run), and charger presence was the only thing that changed the rate (battery: 0 of 9). Side, hub, full versus charging, `macsmc` drivers and Linux wake settings made no difference. Wake reason not found. With the lid closed bounces are rarer: on 2026-11-06 and 07, 1 of 10 lid-closed sleeps bounced (3 s, charger, with `apple-tb-sxfp`; the hub stayed connected).
 
 **Tried in `deep` before the cause was known, did not help:**
 
@@ -111,18 +111,19 @@ Measured on one 13,2, kernel 7.3.1, firmware 7.35.177.61, 2026-11-04 and 05.
 - `acpi_osi=!Darwin` kills the keyboard and trackpad at boot: `SPIT._CRS` returns a different buffer and `applespi` times out. It also logs ACPI errors in Thunderbolt setup. Do not use it.
 - Router channels matter for testing: on radar ch 56 even a fresh boot failed 2 of 3 joins, on ch 40 and 48 it did not. This is separate from the failure above.
 - Battery level can read higher after a short sleep, so it can't measure drain over minutes. KDE's idle timer can also suspend the machine in the middle of a test.
-- Thunderbolt: `timeout resetting host router` on every `deep` resume, even with only a charger connected. Not seen after `s2idle`.
-
-**Open:**
-
-- `macsmc-ac` `online` goes stale if the charger changes during sleep; `EC.EACP` stays right. Seen in `deep`.
+- Thunderbolt: `timeout resetting host router` on every `deep` resume with the old hook (driver unloaded, trees in place), even with only a charger connected. Not seen with the trees removed or with `apple-tb-sxfp`. Not seen after `s2idle`.
 - USB-C after `deep` with a device left in a port, 13,2, hub on the right, lid closed, battery, no bounce. Removing every side (285 s): hub back by itself on USB 2, empty side back at 8 GT/s, `noirq` resume 12 ms, no errors. Leaving the occupied side in place (516 s): hub gone until replug, `timeout resetting host router`, `pci_disable_device` warning, `noirq` 1020 ms. A replug stayed on USB 2 both ways, with `PresDet-` and link x0 on the root port. A port on the other side gave USB 3 for the hub and drive; the Ethernet adapter stayed on USB 2.
 - Recovery: `SXFP(0)` then `TRPE(1)` while awake switches the power pins but does not bring the controller back, with the port occupied or empty. One S3 sleep with the port empty does (823 s, one run).
 - `SXFP(0)` from the sleep hook, with bit 26 of plug events CS_20 cleared through `UPSB.CRMW`, works on an empty side but does not save an occupied one. Calling it in the upstream bridge's `suspend_noirq` with the driver unloaded and the tree in place does not either: the bridge is unreadable after waking.
 - **What works (`drivers/apple-tb-sxfp`):** `SXFP(0)` from the NHI's `suspend_noirq`, before the `thunderbolt` driver suspends the domain, with the tree and the driver in place, as the unmerged kernel patch "thunderbolt: Call SXFP() on Apple systems with Alpine Ridge when suspending" does. Config space saved in `suspend_late` and restored in `resume_noirq` (from `tb_ar_shim`). Results with the hub on the right, lid closed: battery 281 s and charger 34313 s (after one 3 s bounce on the charger that it also survived); the hub kept its USB device numbers at 5000M, a drive read 344 MB/s after waking, a read-only mounted exFAT drive stayed mounted with matching checksums, `noirq` resume 12 to 13 ms, no kernel warnings. Only `xHC error in resume, USBSTS 0x401, Reinit` on the empty side's xHCI, which recovers.
 - Aborted suspend after `SXFP(0)` (`pm_test=platform`): the firmware does not power the controllers on again. The root port's `UGIO` does (it only acts on pins that are off), and the hub stayed connected with matching checksums. Without it the hub's side lost its devices, and removing and rescanning that side brought them back.
 - Reloading the module while the `thunderbolt` driver is bound rebinds a live NHI, which can fail (`failed to add domain`, -110). It loads before `thunderbolt` through a modprobe softdep.
+
+**Open:**
+
+- `macsmc-ac` `online` goes stale if the charger changes during sleep; `EC.EACP` stays right. Seen in `deep`.
 - Sleep can still end within seconds on the charger.
+- `brcmfmac` `WARNING` in `brcmf_remove_interface` once in 7 boots, during the Wi-Fi unload 11 s after a bounce; Wi-Fi recovered. Likely the P2P teardown race reported in omarchy PR 7333.
 - NetworkManager's `no-secrets` give-up after repeated rejects.
 
 Never leave the brcmfmac debug mask on across a sleep: one such sleep ended in a reboot.

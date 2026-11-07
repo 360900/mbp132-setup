@@ -26,7 +26,7 @@ sudo ./mbp132-setup-cli.sh --iso --windows-keys --wifi-country TR/1
 | Touch Bar (Esc, media keys, F1–F12 with Fn) | ✅ via a patched [iBridge driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver) |
 | Ambient light sensor | ✅ (apple-ib-als) |
 | Suspend (lid close / idle / manual) | ✅ deep sleep. Sleep can still end early on the charger; Wi-Fi survives it, and with the lid closed it went back to sleep by itself |
-| USB-C ports after sleep | ⚠️ USB devices work, but the ports can fall back to USB 2 and hub Ethernet can disappear until reboot |
+| USB-C ports after sleep | ✅ Devices stay connected at full speed (MacBookPro13,2, `apple-tb-sxfp`). Other models: ⚠️ a device left in a port comes back on USB 2 |
 | Windows-style modifiers + AltGr (KDE) | ✅ optional, `--windows-keys` |
 | Hibernation | ❌ hidden; it does not resume on this model |
 | Wi-Fi (BCM43602), 2.4 GHz | ✅ calibration file, power saving off |
