@@ -47,7 +47,7 @@ The graphical installer needs the same checks. Run `./mbp132-setup.sh`, go throu
    - After a suspend, `grep enabled /proc/acpi/wakeup` lists no `LID*`, `XHC*`, `ARPT` or `RP*` entry, and `SPIT` is enabled.
 5. USB-C after sleep, one long lid-closed sleep each:
    - Ports empty: afterwards a USB 3 device in any port runs at 5000M (`lsusb -t`).
-   - USB device left in a port: it comes back by itself at 480M, and a port on the other side gives 5000M.
+   - USB device left in a port (MacBookPro13,2, `apple_tb_sxfp` in `lsmod`): it keeps its USB device number (`lsusb -t`) and runs at 5000M; a mounted drive stays mounted. Without the driver: it comes back by itself at 480M, and a port on the other side gives 5000M.
 6. Wi-Fi:
    - It connects at 2.4 GHz and at 5 GHz, on a normal channel (36-48) and on a radar channel (52-64 or 100-140).
    - At 5 GHz `iw dev wlan0 info` shows `width: 80 MHz` (if the router uses 80 MHz or more).

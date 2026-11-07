@@ -10,7 +10,8 @@
 #                 that stay audible at low settings
 #   - Touch Bar:  iBridge / Touch Bar / ambient light sensor driver, via DKMS,
 #                 with the fixes needed on 6.15+ / 7.x kernels
-#   - Sleep:      reliable suspend (deep / S3); hibernation is hidden
+#   - Sleep:      reliable suspend (deep / S3); hibernation is hidden; USB-C
+#                 devices stay connected across sleep (MacBookPro13,2, via DKMS)
 #   - Keyboard:   optional ISO layout fix, Fn <-> left Ctrl swap and
 #                 Windows-style modifier keys with a working AltGr (KDE)
 #   - iPhone:     usbmuxd (USB tethering), without it turning the Touch Bar off
@@ -67,6 +68,9 @@ SRC_DIR=/usr/local/src/mbp132-setup
 AUDIO_SYS_DIR="$SRC_DIR/snd_hda_macbookpro"
 AUDIO_REV="$SRC_DIR/snd_hda_macbookpro.rev"
 TB_NAME=appleibridge
+SXFP_NAME=apple-tb-sxfp
+# Models where apple-tb-sxfp (drivers/apple-tb-sxfp) has been tested.
+SXFP_MODELS=" MacBookPro13,2 "
 
 # Support status per model. What gets installed depends on the hardware found
 # (Touch Bar, Wi-Fi chip), not on this table.
@@ -82,6 +86,7 @@ T1_BACKUP=/var/lib/mbp132-setup/t1-firmware
 F_KBD_MODPROBE=/etc/modprobe.d/mbp132-applespi.conf
 F_UDEV=/etc/udev/rules.d/99-mbp132-sleep.rules
 F_HOOK=/usr/lib/systemd/system-sleep/mbp132-sleep-fix
+F_SXFP_MODPROBE=/etc/modprobe.d/mbp132-thunderbolt.conf
 F_SLEEPCONF=/etc/systemd/sleep.conf.d/mbp132-no-hibernate.conf
 F_SLEEP_MODE=/etc/systemd/sleep.conf.d/mbp132-s2idle.conf # older versions only
 F_KXKB_DEFAULT=/etc/xdg/kxkbrc
@@ -190,7 +195,7 @@ detect_hardware() {
 # This covers someone who downloaded only the script.
 check_vendored_drivers() {
     local f
-    for f in "$DRIVERS_DIR/apple-ibridge/dkms.conf" \
+    for f in "$DRIVERS_DIR/apple-ibridge/dkms.conf" "$DRIVERS_DIR/apple-tb-sxfp/dkms.conf" \
              "$DRIVERS_DIR/snd_hda_macbookpro/install.cirrus.driver.sh"; do
         [[ -f $f ]] || die "Missing $f. Run this script from a clone of the repository (see README.md)."
     done
@@ -542,6 +547,49 @@ EOF
 }
 
 # ------------------------------------------------------------------- sleep --
+sxfp_dkms_versions() { # all versions of apple-tb-sxfp known to DKMS
+    dkms status -m "$SXFP_NAME" 2>/dev/null | sed -n "s/^${SXFP_NAME}\/\([^,:]*\)[,:].*/\1/p" | sort -u
+}
+
+remove_sxfp() {
+    local v
+    while IFS= read -r v; do
+        [[ -n "$v" ]] || continue
+        dkms remove -m "$SXFP_NAME" -v "$v" --all || true
+    done < <(sxfp_dkms_versions)
+    rm -rf "/usr/src/${SXFP_NAME}-"*
+    rm -f "$F_SXFP_MODPROBE"
+}
+
+# USB-C devices across S3: the firmware cuts the Alpine Ridge controllers'
+# power in S3, and a side with a device plugged in does not come back.
+# apple-tb-sxfp cuts it first, as macOS does (see drivers/README.md). It must
+# load before the thunderbolt driver binds.
+install_sxfp() {
+    local vendored="$DRIVERS_DIR/apple-tb-sxfp" ver k model
+    model="$(cat /sys/class/dmi/id/product_name 2>/dev/null)"
+    remove_sxfp
+    if [[ $SXFP_MODELS != *" $model "* ]]; then
+        log "USB-C across sleep: apple-tb-sxfp is untested on $model; skipping it."
+        return 0
+    fi
+    log "USB-C across sleep: apple-tb-sxfp driver"
+    ver="$(sed -n 's/^PACKAGE_VERSION="\(.*\)"$/\1/p' "$vendored/dkms.conf")"
+    [[ -n "$ver" ]] || die "Cannot read PACKAGE_VERSION from $vendored/dkms.conf"
+    cp -r "$vendored" "/usr/src/${SXFP_NAME}-${ver}"
+    chown -R root:root "/usr/src/${SXFP_NAME}-${ver}"
+    dkms add -m "$SXFP_NAME" -v "$ver"
+    for k in $(installed_kernels); do
+        dkms install -m "$SXFP_NAME" -v "$ver" -k "$k" \
+            || warn "apple-tb-sxfp failed to build for kernel $k; USB-C devices drop to USB 2 after sleep there."
+    done
+    write_file "$F_SXFP_MODPROBE" 644 <<'EOF'
+# Installed by mbp132-setup.sh
+# apple_tb_sxfp must be in place before the thunderbolt driver binds
+softdep thunderbolt pre: apple_tb_sxfp
+EOF
+}
+
 install_sleep() {
     log "Sleep: suspend fixes"
     write_file "$F_UDEV" 644 <<'EOF'
@@ -566,6 +614,9 @@ EOF
 #       removing it would tear the filesystem; S3 then loses that side anyway.
 # post: load the Thunderbolt driver and rescan, which builds the trees again.
 # Adapted from thunderbolt-remove-rescan in omarchy PR 11570.
+# With apple_tb_sxfp loaded the trees and the Thunderbolt driver stay: the
+# module cuts the power before S3 as macOS does, and devices stay connected.
+# post then only rebuilds a side whose devices lost their state.
 STATE=/run/mbp132-tb-removed
 log() { logger -t mbp132-sleep-fix -- "$*"; }
 
@@ -662,6 +713,7 @@ pre)
     done < /proc/acpi/wakeup
     grep -q "^SPIT.*disabled" /proc/acpi/wakeup && echo SPIT > /proc/acpi/wakeup
     for f in /sys/bus/pci/devices/*/d3cold_allowed; do echo 0 > "$f"; done
+    [[ -d /sys/module/apple_tb_sxfp ]] && exit 0
     if [[ $2 == suspend && $(suspend_state) == mem && $(cat /sys/power/mem_sleep) == *'[deep]'* ]]; then
         touch "$STATE"
         remove_trees
@@ -669,6 +721,21 @@ pre)
     modprobe -r thunderbolt
     ;;
 post)
+    if [[ -d /sys/module/apple_tb_sxfp ]]; then
+        lost=0
+        for up in $(tb_ports); do
+            for c in $(find "$up" -name config); do
+                if [[ $(od -An -N4 -tx4 "$c" 2>/dev/null) == *ffffffff* ]]; then
+                    log "post: $(basename "$up") lost its devices, rebuilding it"
+                    echo 1 > "$up/remove"
+                    lost=1
+                    break
+                fi
+            done
+        done
+        (( lost )) && echo 1 > /sys/bus/pci/rescan
+        exit 0
+    fi
     modprobe thunderbolt
     if [[ -e $STATE ]]; then
         rm -f "$STATE"
@@ -689,6 +756,7 @@ AllowHybridSleep=no
 EOF
 
     rm -f "$F_SLEEP_MODE" # older versions used s2idle: about 14% battery per hour
+    install_sxfp
     if grep -q "mem_sleep_default=s2idle" /proc/cmdline; then
         warn "Your kernel command line forces s2idle. It drains about 14% battery per hour on the 13,2; this setup is tested with 'deep'."
     fi
@@ -952,7 +1020,7 @@ report_body() {
     report_section "iw reg get" iw reg get
 
     printf '\n## Files installed by this script\n'
-    for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
+    for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" "$F_SXFP_MODPROBE" \
              "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
              "$VOLUME_PROFILE_SET" "$(wifi_nvram_file)" "$T1_BACKUP"; do
         [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
@@ -1010,6 +1078,7 @@ uninstall() {
         dkms remove -m "$TB_NAME" -v "$v" --all || true
     done < <(tb_dkms_versions)
     rm -rf "/usr/src/${TB_NAME}-"*
+    remove_sxfp
     # davidjo's remove step runs a plain "dkms remove", which only covers the
     # running kernel; remove the audio driver from every kernel first.
     # (No "dkms status | grep -q" pipes in this script: with pipefail, grep -q
@@ -1096,7 +1165,7 @@ After rebooting:
   - Touch Bar should light up; hold Fn for F1-F12.
   - Suspend: close the lid; press a key or the power button to wake (opening the lid does not).
   - AltGr (with --windows-keys): right Command or right Option, e.g. AltGr+Q = @ on Turkish Q.
-  - After each kernel update, check that both drivers rebuilt:  dkms status
+  - After each kernel update, check that the drivers rebuilt:  dkms status
 Tips:
   - Double or missed keystrokes: KDE System Settings > Accessibility >
     Keyboard Filters > Bounce keys (~40 ms).
