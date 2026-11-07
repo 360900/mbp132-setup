@@ -114,6 +114,9 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /var/lib/mbp132-setup/t1-firmware/          (backup of EFI/APPLE/EMBEDDEDOS/; kept on --uninstall)
 /usr/src/appleibridge-0.1.4                   (DKMS source, copied from drivers/apple-ibridge)
 /usr/local/src/mbp132-setup/snd_hda_macbookpro (copied from drivers/snd_hda_macbookpro)
+/usr/local/libexec/mbp132-audio-source    (caches the kernel sound source for the audio build)
+/etc/pacman.d/hooks/69-mbp132-audio-source.hook + mbp132-audio-source-sync.hook
+/var/cache/mbp132-setup/kernel-src/       (sound/hda source of each installed kernel)
 /etc/grub.d/41_mbp132-macos                 (GRUB only: writes the macOS entry)
 /etc/default/grub                           (GRUB only: one marked GRUB_DISABLE_BOOTNEXT line)
 ```
@@ -125,11 +128,11 @@ Both drivers are committed to this repository under `drivers/` (via `git subtree
 | Driver | Upstream | Pinned commit | Local changes |
 |---|---|---|---|
 | `apple-ibridge` (Touch Bar, ALS) | [F13-Kr1pt0n/macbook-pro-touchbar-driver](https://github.com/F13-Kr1pt0n/macbook-pro-touchbar-driver), branch `touchbar-driver-hid-driver` | `ecfadc3` (2025-09-02) | `struct tb_touch` build fix, platform-driver port for Linux 7.3, s2idle resume and two fixes from upstream PR 3 ([`patches/`](patches)), `PACKAGE_VERSION` bumped to `0.1.4` to mark the fork |
-| `snd_hda_macbookpro` (Cirrus CS8409 audio) | [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro), `master` | `89b22ff` (2026-09-06) | none |
+| `snd_hda_macbookpro` (Cirrus CS8409 audio) | [davidjo/snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbookpro), `master` | `89b22ff` (2026-09-06) | resume setup after sleep, build from the cached kernel source ([`patches/`](patches)) |
 
 Both are GPL-2.0 upstream; their `LICENSE` files are kept in `drivers/*/`.
 
-One network dependency remains: building the audio driver for a **new** kernel downloads the matching kernel source from `cdn.kernel.org`, because Arch-based distributions ship no kernel-source package. The script installs `wget` and `patch` for this. The vendored Touch Bar driver builds fully offline.
+One network dependency remains: the audio driver for a **new** kernel needs that kernel's `sound/hda` source from `cdn.kernel.org`, because Arch-based distributions ship no kernel-source package. A pacman hook downloads it (checked against kernel.org's `sha256sums.asc`) into `/var/cache/mbp132-setup/kernel-src/` just before the DKMS hook, so the DKMS build itself runs offline. That matters on pacman builds that run hooks without network (CachyOS: hooks lacking `NetworkAccess = allowed`); there the DKMS build could never download it. The hook sets that key only where libalpm supports it, because stock pacman rejects unknown keys and then fails every transaction; a second hook rewrites it when libalpm changes. The vendored Touch Bar driver builds fully offline.
 
 Pins, local changes and the update procedure are documented in [`drivers/README.md`](drivers/README.md). The reasoning behind every fix is in [`NOTES.md`](NOTES.md); how to verify a machine after installing is in [`TESTING.md`](TESTING.md).
 

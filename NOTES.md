@@ -14,7 +14,8 @@ Test system: CachyOS, kernel 7.3.1 (LTS 6.18 also installed), GRUB, mkinitcpio w
 ## Audio (Cirrus CS8409)
 
 - Driver: davidjo/snd_hda_macbookpro. It builds a patched `snd-hda-codec-cs8409` through DKMS.
-- The DKMS `PRE_BUILD` step runs `install.cirrus.driver.sh -k <kernel> --dkms`. For each new kernel this downloads the matching kernel source from `cdn.kernel.org`, because Arch has no kernel-source package. Builds therefore need internet when the kernel updates.
+- The DKMS `PRE_BUILD` step runs `install.cirrus.driver.sh -k <kernel> --dkms`. It needs the kernel's `sound/hda` source, which Arch does not package. Upstream downloads the whole tarball from `cdn.kernel.org` there.
+- CachyOS's pacman (7.1.0.r9) runs every hook in a network namespace with only loopback, unless the hook has `NetworkAccess = allowed` (`man alpm-hooks`). The DKMS hook does not, so the download failed on every kernel update ("Network is unreachable", 2026-11-01 and 2026-11-07), and the build then stopped with "external module directory ... does not exist", because the script exited 0 after the failed download. Our `69-mbp132-audio-source.hook` (with that key) caches the source first, and the build reads `/var/cache/mbp132-setup/kernel-src/`. Upstream pacman has no such key, and a hook with an unknown key fails to parse, which aborts every transaction; `mbp132-audio-source --write-hook` adds the key only if libalpm contains it, and runs again whenever libalpm changes.
 - `dkms.sh` symlinks `/usr/src/snd_hda_macbookpro-0.1` to the directory it runs from. That directory must stay where it is (a system path, not a user's clone).
 
 ## Suspend / resume

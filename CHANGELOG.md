@@ -29,6 +29,7 @@ Installed from this tree on a MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-0
 - Applied the `struct tb_touch` build fix to the vendored driver as a committed patch and bumped `PACKAGE_VERSION` to `0.1.1` to mark the fork.
 
 ### Fixed
+- Audio driver failed to build on every kernel update on CachyOS: its pacman runs hooks without network, and the build downloads the kernel source. A pacman hook (`69-mbp132-audio-source.hook`, with `NetworkAccess = allowed` where pacman supports it) now caches each kernel's `sound/hda` source before the DKMS hook, and the build reads it from `/var/cache/mbp132-setup/kernel-src/`. A failed download now stops the build with that error instead of a misleading one. Found on the MacBookPro13,2 with linux-cachyos 7.3.3 and linux-cachyos-lts 6.18.60 (2026-11-07).
 - Wi-Fi country: the chosen country is no longer replaced by the system's (timezone or installer setting).
 - dracut systems: the initramfs is rebuilt where the boot loader looks for it (EndeavourOS `dracut-rebuild`, Arch naming otherwise).
 - USB-C after sleep: the sleep hook removes the Thunderbolt PCI trees before S3 and rescans after waking. Empty ports recover fully; a device left in a port returns on USB 2.

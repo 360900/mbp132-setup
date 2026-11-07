@@ -62,7 +62,7 @@ The graphical installer needs the same checks. Run `./mbp132-setup.sh`, go throu
    - The menu has no `EFI BootNext` entries, and `/etc/default/grub` has one `GRUB_DISABLE_BOOTNEXT` line.
    - Other boot loader in use (systemd-boot, Limine or rEFInd), or `--no-grub`: the script skips the boot menu entry, and `/etc/default/grub` and `/etc/grub.d/` do not change.
 9. Re-run the script: no errors and nothing duplicated.
-10. Kernel update: after `pacman -Syu` installs a new kernel, both drivers rebuild for it (`dkms status`) before rebooting.
+10. Kernel update: after `pacman -Syu` installs a new kernel, both drivers rebuild for it (`dkms status`) before rebooting. The output shows "Caching kernel sound source" before "Install DKMS modules", and `/var/cache/mbp132-setup/kernel-src/` holds one file per installed kernel. On CachyOS, `/etc/pacman.d/hooks/69-mbp132-audio-source.hook` ends with `NetworkAccess = allowed`.
 11. `sudo ./mbp132-setup-cli.sh --uninstall`:
     - Every installed file is gone and any moved NVRAM file is restored.
     - `/etc/grub.d/41_mbp132-macos` and the marked `GRUB_DISABLE_BOOTNEXT` line are gone; the rest of `/etc/default/grub` remains.

@@ -75,6 +75,10 @@ DRIVERS_DIR="$SCRIPT_DIR/drivers"
 SRC_DIR=/usr/local/src/mbp132-setup
 AUDIO_SYS_DIR="$SRC_DIR/snd_hda_macbookpro"
 AUDIO_REV="$SRC_DIR/snd_hda_macbookpro.rev"
+F_AUDIO_SOURCE=/usr/local/libexec/mbp132-audio-source
+F_AUDIO_HOOK=/etc/pacman.d/hooks/69-mbp132-audio-source.hook   # written by $F_AUDIO_SOURCE
+F_AUDIO_HOOK_SYNC=/etc/pacman.d/hooks/mbp132-audio-source-sync.hook
+AUDIO_SRC_CACHE=/var/cache/mbp132-setup # read by drivers/snd_hda_macbookpro/install.cirrus.driver.sh
 TB_NAME=appleibridge
 SXFP_NAME=apple-tb-sxfp
 # Models where apple-tb-sxfp (drivers/apple-tb-sxfp) has been tested.
@@ -247,17 +251,141 @@ install_deps() {
     pacman -D --asexplicit dkms >/dev/null
 }
 
-# The audio build needs wget (kernel source from cdn.kernel.org) and patch.
+# The audio build needs patch, and wget when the kernel source is not cached
+# (see install_audio_source).
 
 # ------------------------------------------------------------------- audio --
 drivers_fingerprint() { # fingerprint of a tree: sha256sum over the sorted file list and contents
     (cd "$1" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | cut -d' ' -f1
 }
 
+# The audio build needs the kernel's sound/hda source, which Arch-based
+# distributions do not package. Some pacman builds (CachyOS) run hooks in a
+# network namespace with only loopback, so the DKMS build cannot download it
+# during a kernel upgrade. Our own pacman hook runs just before the DKMS hook,
+# with network access, and caches the source of every installed kernel; the
+# build then reads the cache. A second hook rewrites the first whenever
+# libalpm changes, because stock pacman rejects the NetworkAccess key, and a
+# hook that fails to parse aborts every transaction.
+install_audio_source() {
+    write_file "$F_AUDIO_SOURCE" 755 <<EOF
+#!/bin/bash
+# Installed by mbp132-setup.sh: cache the sound/hda source of every installed
+# kernel for the CS8409 audio driver, so its DKMS build needs no network.
+# Run by $F_AUDIO_HOOK before the DKMS hook.
+#   mbp132-audio-source               download what is missing, drop what is unused
+#   mbp132-audio-source --write-hook  rewrite that pacman hook for this pacman
+set -uo pipefail
+CACHE=$AUDIO_SRC_CACHE/kernel-src
+HOOK=$F_AUDIO_HOOK
+SELF=$F_AUDIO_SOURCE
+CDN=https://cdn.kernel.org/pub/linux/kernel
+EOF
+    cat >> "$F_AUDIO_SOURCE" <<'EOF'
+TMP=""
+trap '[[ -n $TMP ]] && rm -rf "$TMP"' EXIT
+say() { printf 'mbp132-audio-source: %s\n' "$*"; }
+
+write_hook() {
+    local net=""
+    grep -qsF NetworkAccess /usr/lib/libalpm.so.* && net="NetworkAccess = allowed"
+    install -D -m 644 /dev/stdin "$HOOK" <<HOOK
+# Installed by mbp132-setup.sh (rewritten by mbp132-audio-source --write-hook)
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = usr/lib/modules/*/build/include/
+
+[Action]
+Description = Caching kernel sound source for the MacBook audio driver...
+When = PostTransaction
+Exec = $SELF
+$net
+HOOK
+}
+
+fetch() { # fetch <version>: 0 cached, 1 not on kernel.org, 2 failed
+    local v=$1 dir out code sum
+    out="$CACHE/linux-$v-sound-hda.tar.xz"
+    [[ -f $out ]] && return 0
+    dir="$CDN/v${v%%.*}.x"
+    TMP=$(mktemp -d "$CACHE/.tmp.XXXXXX") || return 2
+    say "downloading linux-$v.tar.xz"
+    if ! code=$(curl -sSL --connect-timeout 20 --retry 2 -o "$TMP/src.tar.xz" -w '%{http_code}' "$dir/linux-$v.tar.xz"); then
+        say "could not download linux-$v.tar.xz (no network?)"
+        return 2
+    fi
+    [[ $code == 404 ]] && return 1
+    [[ $code == 200 ]] || { say "linux-$v.tar.xz: HTTP $code"; return 2; }
+    sum=$(curl -fsSL --connect-timeout 20 --retry 2 "$dir/sha256sums.asc" | awk -v f="linux-$v.tar.xz" '$2 == f { print $1 }')
+    if [[ -z $sum ]] || ! sha256sum --quiet -c <<< "$sum  $TMP/src.tar.xz"; then
+        say "linux-$v.tar.xz does not match kernel.org's sha256sums.asc"
+        return 2
+    fi
+    tar -xJf "$TMP/src.tar.xz" -C "$TMP" "linux-$v/sound/hda" \
+        && tar -cJf "$TMP/out.tar.xz" --owner=0 --group=0 -C "$TMP" "linux-$v/sound/hda" \
+        && mv "$TMP/out.tar.xz" "$out" || { say "could not unpack linux-$v.tar.xz"; return 2; }
+    rm -rf "$TMP"; TMP=""
+    say "cached $out"
+}
+
+if [[ ${1:-} == --write-hook ]]; then write_hook; exit; fi
+
+mkdir -p "$CACHE" && rm -rf "$CACHE"/.tmp.* || exit 1
+keep=" " failed=0
+for d in /usr/lib/modules/*/; do
+    [[ -f ${d}pkgbase && -d ${d}build ]] || continue # pacman kernels with headers
+    k=$(basename "$d") v=${k%%-*}
+    fetch "$v"; rc=$?
+    [[ -n $TMP ]] && { rm -rf "$TMP"; TMP=""; }
+    if (( rc == 1 )); then
+        # Same fallback as install.cirrus.driver.sh: the base release.
+        v=$(cut -d. -f1-2 <<< "$v")
+        say "not on kernel.org; using linux-$v for $k"
+        fetch "$v"; rc=$?
+        [[ -n $TMP ]] && { rm -rf "$TMP"; TMP=""; }
+    fi
+    if (( rc == 0 )); then
+        keep+="$v "
+    else
+        say "the audio driver will not build for $k. With network, run:"
+        say "  sudo $SELF && sudo dkms install snd_hda_macbookpro/0.1 -k $k"
+        failed=1
+    fi
+done
+for f in "$CACHE"/linux-*-sound-hda.tar.xz; do
+    [[ -e $f ]] || continue
+    v=${f##*/linux-} v=${v%-sound-hda.tar.xz}
+    [[ $keep == *" $v "* ]] || rm -f "$f"
+done
+exit $failed
+EOF
+    "$F_AUDIO_SOURCE" --write-hook
+    log "Wrote $F_AUDIO_HOOK"
+    write_file "$F_AUDIO_HOOK_SYNC" 644 <<EOF
+$MARKER
+# Rewrites $F_AUDIO_HOOK when libalpm changes, so it uses
+# NetworkAccess only where pacman supports it.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = usr/lib/libalpm.so*
+
+[Action]
+Description = Updating the MacBook audio source hook for this pacman...
+When = PostTransaction
+Exec = $F_AUDIO_SOURCE --write-hook
+EOF
+    "$F_AUDIO_SOURCE" || warn "Could not cache the kernel source for every kernel; see above."
+}
+
 install_audio() {
     log "Audio: CS8409 driver"
     local vendored="$DRIVERS_DIR/snd_hda_macbookpro" fp k
     fp="$(drivers_fingerprint "$vendored")"
+    install_audio_source
 
     # davidjo's dkms.sh symlinks /usr/src/snd_hda_macbookpro-0.1 to the
     # directory it runs from, and DKMS rebuilds from there on every kernel
@@ -1218,7 +1346,8 @@ report_body() {
     printf '\n## Files installed by this script\n'
     for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" "$F_SXFP_MODPROBE" \
              "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_WIFI_REGDOM_UDEV" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
-             "$VOLUME_PROFILE_SET" "$(wifi_nvram_file)" "$T1_BACKUP" "$F_GRUB_MACOS"; do
+             "$VOLUME_PROFILE_SET" "$(wifi_nvram_file)" "$T1_BACKUP" "$F_GRUB_MACOS" \
+             "$F_AUDIO_SOURCE" "$F_AUDIO_HOOK" "$F_AUDIO_HOOK_SYNC"; do
         [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
     done
 
@@ -1258,7 +1387,8 @@ uninstall_audio() {
     if [[ -x "$AUDIO_SYS_DIR/install.cirrus.driver.sh" ]]; then
         (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -r) || true
     fi
-    rm -rf "$AUDIO_SYS_DIR" "$AUDIO_REV"
+    rm -rf "$AUDIO_SYS_DIR" "$AUDIO_REV" "$AUDIO_SRC_CACHE"
+    rm -f "$F_AUDIO_SOURCE" "$F_AUDIO_HOOK" "$F_AUDIO_HOOK_SYNC"
 }
 
 uninstall_touchbar() {
