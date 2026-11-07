@@ -112,15 +112,14 @@ declare -A WIFI_COUNTRY_REV=([TR]=1)
 XKB_OPTIONS="altwin:swap_lalt_lwin,lv3:rwin_switch"
 MARKER="# Installed by mbp132-setup.sh"
 F_GRUB_DEFAULT=/etc/default/grub
-GRUB_BEGIN="# BEGIN mbp132-setup.sh"
-GRUB_END="# END mbp132-setup.sh"
+F_GRUB_MACOS=/etc/grub.d/41_mbp132-macos
 EFIVARS=/sys/firmware/efi/efivars
 V_LOADER_INFO=LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
 V_APPLE_BOOT_DEVICE=efi-boot-device-7c436110-ab2a-4bbb-a880-fe41995c9f82
 
-DO_AUDIO=1 DO_TB=1 DO_SLEEP=1 DO_WIFI=1 OPT_ISO=0 OPT_FNSWAP=0 OPT_WINKEYS=0 OPT_RESET_KBD=0 FORCE=0 UNINSTALL=0 REPORT=0
+DO_AUDIO=1 DO_TB=1 DO_SLEEP=1 DO_WIFI=1 DO_GRUB=1 OPT_ISO=0 OPT_FNSWAP=0 OPT_WINKEYS=0 OPT_RESET_KBD=0 FORCE=0 UNINSTALL=0 REPORT=0
 WIFI_MAC="" WIFI_COUNTRY=""
-HAS_T1=0 T1_RECOVERY=0 HAS_BCM43602=0 HAS_GRUB=0
+HAS_T1=0 T1_RECOVERY=0 HAS_BCM43602=0
 
 # ----------------------------------------------------------------- helpers --
 c_ok=$'\e[32m' c_warn=$'\e[33m' c_err=$'\e[31m' c_off=$'\e[0m'
@@ -212,7 +211,7 @@ check_vendored_drivers() {
 install_deps() {
     local pkgs=(dkms base-devel wget patch) k
     (( DO_WIFI )) && pkgs+=(iw python)
-    (( HAS_GRUB )) && pkgs+=(efibootmgr)
+    (( DO_GRUB )) && pkgs+=(efibootmgr)
     # usbmuxd (iPhone tethering and file access). On T1 models it is safe only
     # together with the iBridge udev rule that install_touchbar writes.
     (( DO_TB || !HAS_T1 )) && pkgs+=(usbmuxd)
@@ -953,7 +952,8 @@ EOF
 # -------------------------------------------------------------------- grub --
 # A "macOS" entry in the GRUB menu. GRUB cannot read APFS, so it asks the
 # firmware to start macOS once (UEFI BootNext) and reboots. The slot number
-# differs per machine and the firmware keeps stale slots, so it is looked up.
+# differs per machine and the firmware keeps stale slots, so a grub.d script
+# looks it up every time grub.cfg is generated.
 # GRUB 2.16's own generator (31_efi_bootnext) stays off: it lists stale slots,
 # GRUB itself and raw device paths as menu entries.
 grub_cfg_path() {
@@ -1014,71 +1014,75 @@ macos_boot_entry() {
     [[ -n ${named:-$any} ]] && echo "${named:-$any}"
 }
 
-remove_macos_entry() { # remove_macos_entry <custom.cfg>
-    [[ -f $1 ]] || return 0
-    sed -i "/^$GRUB_BEGIN\$/,/^$GRUB_END\$/d" "$1"
-    [[ -s $1 ]] || rm -f "$1"
-}
+# The grub.d script: the lookup functions above, then the menu entry.
+write_grub_script() {
+    {
+        printf '#!/bin/bash\n%s: run by grub-mkconfig.\n' "$MARKER"
+        printf '# A "macOS" entry that starts macOS once through the firmware (UEFI BootNext).\n# Written from mbp132-setup-cli.sh (section "grub"); edits here are lost on its next run.\n'
+        printf 'EFIVARS=%q\nV_APPLE_BOOT_DEVICE=%q\n\n' "$EFIVARS" "$V_APPLE_BOOT_DEVICE"
+        declare -f efi_var grub_cfg_path macos_boot_entry
+        cat <<'GEN'
 
-install_grub() {
-    log "GRUB: macOS menu entry"
-    local cfg custom entry="" written=0
-    cfg="$(grub_cfg_path)"
-    custom="$(dirname "$cfg")/custom.cfg"
-
-    # Also clears older or repeated lines; the last assignment would win anyway.
-    sed -i -e '/^[[:space:]]*GRUB_DISABLE_BOOTNEXT=/d' -e '$a\' "$F_GRUB_DEFAULT"
-    echo "GRUB_DISABLE_BOOTNEXT=true $MARKER" >> "$F_GRUB_DEFAULT"
-
-    # Removed first so a slot that is gone cannot stay in the menu.
-    remove_macos_entry "$custom"
-    if [[ ! -d $EFIVARS ]]; then
-        log "Not started through UEFI; no macOS entry."
-    elif ! grep -qs '^bootnext:' "$(dirname "$cfg")/x86_64-efi/command.lst"; then
-        if grep -qs '^bootnext:' /usr/lib/grub/x86_64-efi/command.lst; then
-            warn "The installed GRUB is older than the package, so no macOS entry was added. Run grub-install, then this script again."
-        else
-            warn "This GRUB has no bootnext command (it needs 2.16), so no macOS entry was added."
-        fi
-    elif ! entry="$(macos_boot_entry)"; then
-        log "No firmware entry for macOS found; no macOS entry."
+[[ -d $EFIVARS ]] || exit 0
+if ! command -v efibootmgr >/dev/null; then
+    echo "Warning: efibootmgr is not installed; no macOS entry." >&2
+    exit 0
+fi
+cfg=$(grub_cfg_path) || exit 0
+if ! grep -qs '^bootnext:' "${cfg%/*}/x86_64-efi/command.lst"; then
+    if grep -qs '^bootnext:' /usr/lib/grub/x86_64-efi/command.lst; then
+        echo "Warning: the installed GRUB is older than the package and has no bootnext command; run grub-install for a macOS entry." >&2
     else
-        [[ ! -f $custom ]] || sed -i '$a\' "$custom"
-        cat >> "$custom" <<EOF
-$GRUB_BEGIN
+        echo "Warning: this GRUB has no bootnext command (it needs 2.16); no macOS entry." >&2
+    fi
+    exit 0
+fi
+if ! entry=$(macos_boot_entry); then
+    echo "No firmware entry for macOS found; no macOS entry." >&2
+    exit 0
+fi
+echo "Found macOS: firmware entry Boot$entry" >&2
+cat <<EOF
 if [ "\$grub_platform" = "efi" ]; then
-  menuentry 'macOS' --class macosx --class os \$menuentry_id_option 'efi-bootnext-$entry' {
+  menuentry 'macOS' --class macosx --class os \$menuentry_id_option 'mbp132-macos' {
     if bootnext $entry; then
       reboot
     fi
   }
 fi
-$GRUB_END
 EOF
-        chmod 644 "$custom"
-        written=1
-        log "Added macOS to $custom (firmware entry Boot$entry)"
-    fi
+GEN
+    } | write_file "$F_GRUB_MACOS" 755
+}
 
+install_grub() {
+    log "GRUB: macOS menu entry"
+    local cfg
+    cfg="$(grub_cfg_path)"
+    # Also clears older or repeated lines; the last assignment would win anyway.
+    sed -i -e '/^[[:space:]]*GRUB_DISABLE_BOOTNEXT=/d' -e '$a\' "$F_GRUB_DEFAULT"
+    echo "GRUB_DISABLE_BOOTNEXT=true $MARKER" >> "$F_GRUB_DEFAULT"
+    write_grub_script
     log "Regenerating $cfg"
-    if ! grub-mkconfig -o "$cfg"; then
-        warn "grub-mkconfig failed; the old $cfg is still in place."
-    elif (( written )) && ! grep -qs 'custom\.cfg' "$cfg"; then
-        warn "$cfg does not load custom.cfg, so macOS will not show up. Make /etc/grub.d/41_custom executable and run this script again."
-    fi
+    grub-mkconfig -o "$cfg" || warn "grub-mkconfig failed; the old $cfg is still in place."
 }
 
 uninstall_grub() {
-    local cfg
-    cfg="$(grub_cfg_path)" || return 0
-    remove_macos_entry "$(dirname "$cfg")/custom.cfg"
+    local cfg changed=0
+    if [[ -e $F_GRUB_MACOS ]]; then
+        rm -f "$F_GRUB_MACOS"
+        changed=1
+    fi
     if grep -qs "^GRUB_DISABLE_BOOTNEXT=true $MARKER\$" "$F_GRUB_DEFAULT"; then
         sed -i "/^GRUB_DISABLE_BOOTNEXT=true $MARKER\$/d" "$F_GRUB_DEFAULT"
-        if grub_in_use; then
-            log "Regenerating $cfg"
-            grub-mkconfig -o "$cfg" || warn "grub-mkconfig failed; run it yourself."
-        fi
+        changed=1
     fi
+    if (( changed )) && grub_in_use; then
+        cfg="$(grub_cfg_path)"
+        log "Regenerating $cfg"
+        grub-mkconfig -o "$cfg" || warn "grub-mkconfig failed; run it yourself."
+    fi
+    return 0
 }
 
 # ------------------------------------------------------------------ report --
@@ -1162,7 +1166,7 @@ report_body() {
     printf '\n## Files installed by this script\n'
     for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" "$F_SXFP_MODPROBE" \
              "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
-             "$VOLUME_PROFILE_SET" "$(wifi_nvram_file)" "$T1_BACKUP"; do
+             "$VOLUME_PROFILE_SET" "$(wifi_nvram_file)" "$T1_BACKUP" "$F_GRUB_MACOS"; do
         [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
     done
 
@@ -1287,10 +1291,9 @@ if (( DO_WIFI && !HAS_BCM43602 )); then
     log "No BCM43602 Wi-Fi found; skipping the Wi-Fi settings (other chips need none)."
     DO_WIFI=0
 fi
-if grub_in_use; then
-    HAS_GRUB=1
-else
+if (( DO_GRUB )) && ! grub_in_use; then
     log "GRUB is not the boot loader here; skipping the boot menu entry."
+    DO_GRUB=0
 fi
 
 install_deps
@@ -1302,7 +1305,7 @@ install_windows_keys
 (( DO_SLEEP )) && install_sleep
 (( DO_WIFI ))  && install_wifi
 rebuild_initramfs
-(( HAS_GRUB )) && install_grub
+(( DO_GRUB ))  && install_grub
 
 echo
 log "All done. Reboot to apply."
@@ -1313,7 +1316,7 @@ After rebooting:
   - Suspend: close the lid; press a key or the power button to wake (opening the lid does not).
   - AltGr (with --windows-keys): right Command or right Option, e.g. AltGr+Q = @ on Turkish Q.
   - After each kernel update, check that the drivers rebuilt:  dkms status
-  - macOS gone from the GRUB menu, or it boots Linux again (after an NVRAM reset or a macOS reinstall)? Run this script again.
+  - macOS missing from the GRUB menu? Regenerate it:  sudo grub-mkconfig -o /boot/grub/grub.cfg
 Tips:
   - Double or missed keystrokes: KDE System Settings > Accessibility >
     Keyboard Filters > Bounce keys (~40 ms).
