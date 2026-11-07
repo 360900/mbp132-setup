@@ -95,6 +95,8 @@ F_SLEEP_MODE=/etc/systemd/sleep.conf.d/mbp132-s2idle.conf # older versions only
 F_KXKB_DEFAULT=/etc/xdg/kxkbrc
 F_WIFI_DISPATCH=/etc/NetworkManager/dispatcher.d/99-mbp132-wifi-powersave
 F_WIFI_NMCONF=/etc/NetworkManager/conf.d/mbp132-wifi.conf
+F_WIFI_REGDOM_UDEV=/etc/udev/rules.d/86-mbp132-regdom.rules
+F_WIFI_REGDOM_CACHYOS=/etc/iw-regdomain # read by CachyOS's iw-set-regdomain
 F_WIFI_RELOAD=/usr/lib/systemd/system-sleep/mbp132-wifi-reload
 F_WIFI_FEM=/usr/local/libexec/mbp132-wifi-femctrl
 FW_BRCM_DIR=/usr/lib/firmware/brcm
@@ -794,7 +796,8 @@ EOF
 #    gives both bands and 80 MHz 802.11ac. Its country must be one the
 #    firmware knows, with the right revision: TR/0 leaves 100-140 off and makes
 #    52-64 passive (joining a router there fails at once), TR/1 allows 52-140.
-#    brcmfmac keeps the file's country if it matches the system's.
+#    brcmfmac keeps the file's country only while it matches the system's,
+#    so the system's regulatory country is set to it as well.
 #  - Other generic 43602 NVRAM files shared online make association fail.
 #  - Power saving makes the link slow and laggy.
 #  - The firmware does not survive sleep: it stops answering the driver after
@@ -846,6 +849,35 @@ install_wifi_nvram() {
     } | write_file "$f" 644
     log "Wi-Fi calibration: MAC $mac, country ${cc%/*} revision ${cc#*/}"
     [[ -z $WIFI_MAC ]] && warn "No --wifi-mac given; using the made-up address $mac (macOS shows the real one: ifconfig en0)."
+    install_wifi_regdom "${cc%/*}"
+    return 0
+}
+
+# brcmfmac keeps the calibration file's country only while the system's
+# regulatory country matches it. Any other one (from the timezone, the
+# installer or wireless-regdb's setting) replaces it, with revision 0, so
+# channels allowed by the chosen revision go missing. Set the system's to it.
+install_wifi_regdom() {
+    local cc=$1
+    write_file "$F_WIFI_REGDOM_UDEV" 644 <<EOF
+$MARKER
+# Wi-Fi country for the BCM43602 calibration file; runs after 85-regulatory.rules
+ACTION=="add", SUBSYSTEM=="module", DEVPATH=="/module/cfg80211", RUN+="/usr/bin/iw reg set $cc"
+EOF
+    if [[ -x /usr/lib/iw-set-regdomain ]]; then
+        if [[ -f $F_WIFI_REGDOM_CACHYOS ]] && ! grep -qF "$MARKER" "$F_WIFI_REGDOM_CACHYOS"; then
+            warn "$F_WIFI_REGDOM_CACHYOS sets its own country; a timezone change may override the Wi-Fi country $cc."
+        else
+            printf '%s\nCOUNTRY=%s\n' "$MARKER" "$cc" | write_file "$F_WIFI_REGDOM_CACHYOS" 644
+        fi
+    fi
+    udevadm control --reload || true
+    iw reg set "$cc" || true
+}
+
+remove_wifi_regdom() {
+    rm -f "$F_WIFI_REGDOM_UDEV"
+    grep -qsF "$MARKER" "$F_WIFI_REGDOM_CACHYOS" && rm -f "$F_WIFI_REGDOM_CACHYOS"
     return 0
 }
 
@@ -931,6 +963,7 @@ exit 0
 EOF
     else
         rm -f "$F_WIFI_RELOAD" "$F_WIFI_FEM"
+        remove_wifi_regdom
         log "No tested Wi-Fi calibration file for $model; Wi-Fi stays 2.4 GHz only."
     fi
 
@@ -1179,7 +1212,7 @@ report_body() {
 
     printf '\n## Files installed by this script\n'
     for f in "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" "$F_SXFP_MODPROBE" \
-             "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
+             "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF" "$F_WIFI_REGDOM_UDEV" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" \
              "$VOLUME_PROFILE_SET" "$(wifi_nvram_file)" "$T1_BACKUP" "$F_GRUB_MACOS"; do
         [[ -e $f ]] && echo "present: $f" || echo "missing: $f"
     done
@@ -1208,6 +1241,7 @@ uninstall() {
     log "Removing everything installed by this script"
     rm -f "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
           "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"
+    remove_wifi_regdom
     systemctl disable mbp132-volume.service >/dev/null 2>&1 || true
     rm -f "$F_WP_VOLUME" "$F_VOLUME_HELPER" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" "$VOLUME_PROFILE_SET" \
           /var/lib/alsa/card*.conf.d/"$ALSA_VOLUME_NAME"

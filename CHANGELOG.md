@@ -27,6 +27,8 @@ Installed from this tree on a MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-0
 - Applied the `struct tb_touch` build fix to the vendored driver as a committed patch and bumped `PACKAGE_VERSION` to `0.1.1` to mark the fork.
 
 ### Fixed
+- Wi-Fi country: the chosen country is no longer replaced by the system's (timezone or installer setting).
+- dracut systems: the initramfs is rebuilt where the boot loader looks for it (EndeavourOS `dracut-rebuild`, Arch naming otherwise).
 - USB-C after sleep: the sleep hook removes the Thunderbolt PCI trees before S3 and rescans after waking. Empty ports recover fully; a device left in a port returns on USB 2.
 - 5 GHz dead after deep sleep on the MacBookPro13,2: every join failed with status 16 until reboot, on battery and after bounces. S3 clears `chipcontrol` bit 4, which the Mac's firmware sets at boot; the sleep hook now restores it before loading `brcmfmac`. 5 of 5 deep sleeps rejoined 5 GHz with 0 rejects: 3 on battery, 2 on the charger including a 6 s bounce (2026-11-06). Found by makoni and others, omarchy PR 11570.
 - `dkms` stayed marked as a dependency if another package had installed it, so removing that package with `pacman -Rns` also removed `dkms` and the drivers stopped rebuilding. The script now marks it as explicitly installed. Found on the MacBookPro13,2 (2026-11-05).
