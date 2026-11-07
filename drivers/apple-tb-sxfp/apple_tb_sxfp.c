@@ -128,6 +128,22 @@ static int nhi_suspend_noirq(struct device *dev)
 	return bus_pm->suspend_noirq ? bus_pm->suspend_noirq(dev) : 0;
 }
 
+/*
+ * SXFP(0) only helps while the router is awake, and a runtime suspended NHI
+ * would also skip suspend_noirq (direct_complete). The thunderbolt driver
+ * allows runtime PM when it binds, so wake the NHI here instead; the PM core
+ * holds a runtime reference from now until the system resumes.
+ */
+static int nhi_prepare(struct device *dev)
+{
+	int ret;
+
+	pm_runtime_resume(dev);
+	ret = bus_pm->prepare ? bus_pm->prepare(dev) : 0;
+
+	return ret > 0 ? 0 : ret;
+}
+
 static int restore_cb(struct pci_dev *dev, void *data)
 {
 	int *budget = data;
@@ -247,11 +263,10 @@ static int __init apple_tb_sxfp_init(void)
 	upsb_pd.ops.suspend_late = upsb_suspend_late;
 	upsb_pd.ops.resume_noirq = upsb_resume_noirq;
 	nhi_pd.ops = *bus_pm;
+	nhi_pd.ops.prepare = nhi_prepare;
 	nhi_pd.ops.suspend_noirq = nhi_suspend_noirq;
 	for (i = 0; i < nctrl; i++) {
 		attach(ctrls[i].upsb, &upsb_pd);
-		/* A runtime suspended NHI could skip suspend_noirq. */
-		pm_runtime_forbid(&ctrls[i].nhi->dev);
 		attach(ctrls[i].nhi, &nhi_pd);
 		pci_info(ctrls[i].upsb, "apple_tb_sxfp: installed\n");
 	}
@@ -264,7 +279,6 @@ static void __exit apple_tb_sxfp_exit(void)
 
 	for (i = 0; i < nctrl; i++) {
 		attach(ctrls[i].nhi, NULL);
-		pm_runtime_allow(&ctrls[i].nhi->dev);
 		attach(ctrls[i].upsb, NULL);
 		pci_dev_put(ctrls[i].nhi);
 		pci_dev_put(ctrls[i].upsb);
