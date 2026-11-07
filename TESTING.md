@@ -58,13 +58,13 @@ The graphical installer needs the same checks. Run `./mbp132-setup.sh`, go throu
    - `/usr/lib/firmware/brcm/` holds only `brcmfmac43602-pcie.Apple Inc.-MacBookPro13,2.txt` (ours) and package-owned files.
 7. Keyboard (if used): with `--iso`, the keys next to left Shift and the one below Esc are correct. With `--windows-keys`, AltGr works on right Command and right Option.
 8. GRUB menu:
-   - `macOS` starts macOS once; the next boot returns to GRUB. `/boot/grub/custom.cfg` names the entry whose path is in `efi-boot-device` (macOS: `nvram efi-boot-device`).
+   - `macOS` starts macOS once; the next boot returns to GRUB. The `macOS` entry in `/boot/grub/grub.cfg` names the firmware entry whose path is in `efi-boot-device` (macOS: `nvram efi-boot-device`).
    - The menu has no `EFI BootNext` entries, and `/etc/default/grub` has one `GRUB_DISABLE_BOOTNEXT` line.
-   - Other boot loader in use (systemd-boot, Limine or rEFInd): the script says it skips the boot menu entry, and neither file changes.
+   - Other boot loader in use (systemd-boot, Limine or rEFInd), or `--no-grub`: the script skips the boot menu entry, and `/etc/default/grub` and `/etc/grub.d/` do not change.
 9. Re-run the script: no errors and nothing duplicated.
 10. Kernel update: after `pacman -Syu` installs a new kernel, both drivers rebuild for it (`dkms status`) before rebooting.
 11. `sudo ./mbp132-setup-cli.sh --uninstall`:
     - Every installed file is gone and any moved NVRAM file is restored.
-    - The GRUB entry and setting are gone; other lines in those files remain.
+    - `/etc/grub.d/41_mbp132-macos` and the marked `GRUB_DISABLE_BOOTNEXT` line are gone; the rest of `/etc/default/grub` remains.
     - It reboots cleanly.
     - Then reinstall.

@@ -42,7 +42,7 @@ Run `./mbp132-setup.sh` as your normal user, as shown above, then reboot. It nee
 
 Both drivers are vendored in this repository (`drivers/`); the script installs them from the local tree and clones nothing from GitHub. See [Vendored drivers](#vendored-drivers).
 
-Command-line options: `--iso`, `--fn-ctrl-swap`, `--windows-keys`, `--reset-keyboard`, `--wifi-mac MAC`, `--wifi-country CC[/REV]`, `--no-audio`, `--no-touchbar`, `--no-sleep`, `--no-wifi`, `--force`, `--uninstall`, `--report`. Run `--help` for details.
+Command-line options: `--iso`, `--fn-ctrl-swap`, `--windows-keys`, `--reset-keyboard`, `--wifi-mac MAC`, `--wifi-country CC[/REV]`, `--no-audio`, `--no-touchbar`, `--no-sleep`, `--no-wifi`, `--no-grub`, `--force`, `--uninstall`, `--report`. Run `--help` for details.
 
 Other 2016-2017 MacBook Pros (13,1, 13,3, 14,1, 14,2, 14,3) are supported but untested. The Touch Bar and Wi-Fi parts are installed only where that hardware exists. To help, run `sudo ./mbp132-setup-cli.sh --report` (works on any model, changes nothing) and open a [test report](https://github.com/360900/mbp132-setup/issues/new?template=test-report.yml).
 
@@ -79,9 +79,9 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 
 **GRUB menu**
 - GRUB cannot read APFS, so it cannot start macOS itself. The script adds a `macOS` entry that sets the firmware's one-time `BootNext` to the macOS entry and reboots. The next boot is back to normal.
-- The firmware entry number differs per machine, so the script looks it up. Run the script again after an NVRAM reset or a macOS reinstall.
+- The firmware entry number differs per machine and can change, so `/etc/grub.d/41_mbp132-macos` looks it up whenever `grub.cfg` is generated (on CachyOS also after every kernel update). If macOS is missing from the menu, run `sudo grub-mkconfig -o /boot/grub/grub.cfg`.
 - GRUB 2.16's own `31_efi_bootnext` entries are turned off (`GRUB_DISABLE_BOOTNEXT=true`): on the 13,2 they listed GRUB itself, stale entries and raw device paths.
-- Skipped when another boot loader is in use. `--uninstall` removes the entry and the setting; other lines in those files are kept.
+- Skipped when another boot loader is in use, or with `--no-grub`. `--uninstall` removes the entry and the setting; other lines in those files are kept.
 
 **Keyboard (`--windows-keys`, KDE Plasma)**
 - XKB options `altwin:swap_lalt_lwin,lv3:rwin_switch`. The left keys become Ctrl, Fn, Win, Alt (in Windows order), and right Command and right Option both act as AltGr. Swapping Alt/Win on *both* sides (`altwin:swap_alt_win`) removes AltGr, because right Option is Linux's AltGr on Mac keyboards. Ctrl+Alt as AltGr is Windows-only and not possible with XKB.
@@ -112,7 +112,7 @@ After every kernel update, run `dkms status` before rebooting: both drivers shou
 /var/lib/mbp132-setup/t1-firmware/          (backup of EFI/APPLE/EMBEDDEDOS/; kept on --uninstall)
 /usr/src/appleibridge-0.1.4                   (DKMS source, copied from drivers/apple-ibridge)
 /usr/local/src/mbp132-setup/snd_hda_macbookpro (copied from drivers/snd_hda_macbookpro)
-/boot/grub/custom.cfg                       (GRUB only: macOS entry between BEGIN/END markers)
+/etc/grub.d/41_mbp132-macos                 (GRUB only: writes the macOS entry)
 /etc/default/grub                           (GRUB only: one marked GRUB_DISABLE_BOOTNEXT line)
 ```
 
