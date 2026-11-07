@@ -5,6 +5,7 @@ import math
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -165,6 +166,30 @@ def has_pci(vendor, device):
     except OSError:
         return False
     return any(read(f"{base}/{n}/vendor") == f"0x{vendor}" and read(f"{base}/{n}/device") == f"0x{device}" for n in names)
+
+
+def uses_grub():
+    """Same test as grub_in_use in mbp132-setup-cli.sh: GRUB installed, and the
+    boot loader running now (LoaderInfo, else the firmware entry) is not another one."""
+    if not shutil.which("grub-mkconfig") or not os.path.exists("/etc/default/grub"):
+        return False
+    if not any(os.path.exists(f"{d}/grub.cfg") for d in ("/boot/grub", "/efi/grub", "/boot/efi/grub")):
+        return False
+    try:
+        with open("/sys/firmware/efi/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f", "rb") as f:
+            loader = f.read()[4:].decode("utf-16-le", "replace").rstrip("\0")
+    except OSError:
+        loader = ""
+    if loader:
+        return loader.startswith("GRUB")
+    try:
+        out = subprocess.run(["efibootmgr"], capture_output=True, text=True, timeout=5,
+                             env=dict(os.environ, LC_ALL="C")).stdout
+    except (OSError, subprocess.SubprocessError):
+        return True
+    current = re.search(r"^BootCurrent: (\S+)", out, re.M)
+    entry = current and re.search(rf"^Boot{current.group(1)}\*? (.*)", out, re.M)
+    return not (entry and re.search(r"refind|limine|systemd", entry.group(1), re.I))
 
 
 @functools.cache
@@ -399,6 +424,7 @@ class Installer(Adw.ApplicationWindow):
         self.has_t1 = has_usb("05ac", "8600")
         self.t1_recovery = has_usb("05ac", "1281")
         self.has_wifi = has_pci("14e4", "43ba")
+        self.has_grub = uses_grub()
         self.status = MODELS.get(self.model)
         self.uses_country = self.model in WIFI_NVRAM_MODELS  # The country only goes in the calibration file.
         applespi = read("/etc/modprobe.d/mbp132-applespi.conf")
@@ -409,7 +435,7 @@ class Installer(Adw.ApplicationWindow):
         self.country = detect_country()
         self.mac = ""
         self.force = False
-        self.parts = dict(audio=True, touchbar=self.has_t1, sleep=True, wifi=self.has_wifi)
+        self.parts = dict(audio=True, touchbar=self.has_t1, sleep=True, wifi=self.has_wifi, grub=self.has_grub)
         self.proc = None
         self.running = False
         self.index = 0
@@ -670,10 +696,12 @@ class Installer(Adw.ApplicationWindow):
             ("wifi", "network-wireless-symbolic", "Wi-Fi",
              "Calibration, 5 GHz, and recovery after sleep" if self.uses_country else "Power saving off and a stable address",
              self.has_wifi),
+            ("grub", "drive-harddisk-symbolic", "Boot menu", "Adds macOS to the GRUB menu", self.has_grub),
         ]
         rows = []
         for key, icon, title, subtitle, available in items:
-            row = Adw.SwitchRow(title=title, subtitle=subtitle if available else "Not found on this Mac",
+            missing = "GRUB is not the boot loader" if key == "grub" else "Not found on this Mac"
+            row = Adw.SwitchRow(title=title, subtitle=subtitle if available else missing,
                                 active=self.parts[key], sensitive=available)
             row.add_prefix(icon_tile(icon))
             row.connect("notify::active", self._on_part, key)
@@ -723,6 +751,8 @@ class Installer(Adw.ApplicationWindow):
             out.append("--no-sleep")
         if not self.parts["wifi"] and self.has_wifi:
             out.append("--no-wifi")
+        if not self.parts["grub"] and self.has_grub:
+            out.append("--no-grub")
         if self.parts["wifi"] and self.has_wifi:
             if self.country and self.uses_country:
                 out += ["--wifi-country", self.country]
@@ -739,7 +769,8 @@ class Installer(Adw.ApplicationWindow):
         while (child := self.summary.get_first_child()) is not None:
             self.summary.remove(child)
         names = dict(countries())
-        on = [n for k, n in (("audio", "Audio"), ("touchbar", "Touch Bar"), ("sleep", "Sleep"), ("wifi", "Wi-Fi")) if self.parts[k]]
+        on = [n for k, n in (("audio", "Audio"), ("touchbar", "Touch Bar"), ("sleep", "Sleep"), ("wifi", "Wi-Fi"),
+                                       ("grub", "Boot menu")) if self.parts[k]]
         rows = [
             ("input-keyboard-symbolic", "Keyboard", "International (ISO)" if self.iso else "US (ANSI)"),
             ("input-keyboard-symbolic", "Modifier keys",
