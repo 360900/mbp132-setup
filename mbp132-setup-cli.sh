@@ -20,6 +20,8 @@
 #                 included), 80 MHz 802.11ac; power saving off; driver reloaded
 #                 around sleep and 5 GHz restored after it. Other BCM43602
 #                 models: no calibration file, 2.4 GHz only.
+#   - Boot menu:  a macOS entry in GRUB, if GRUB is the boot loader and the
+#                 firmware has an entry for macOS
 #
 # Tested on: MacBookPro13,2, CachyOS, kernel 7.3.1 (GRUB, mkinitcpio, systemd).
 #
@@ -109,10 +111,16 @@ WIFI_NVRAM_MODELS=" MacBookPro13,2 "
 declare -A WIFI_COUNTRY_REV=([TR]=1)
 XKB_OPTIONS="altwin:swap_lalt_lwin,lv3:rwin_switch"
 MARKER="# Installed by mbp132-setup.sh"
+F_GRUB_DEFAULT=/etc/default/grub
+GRUB_BEGIN="# BEGIN mbp132-setup.sh"
+GRUB_END="# END mbp132-setup.sh"
+EFIVARS=/sys/firmware/efi/efivars
+V_LOADER_INFO=LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+V_APPLE_BOOT_DEVICE=efi-boot-device-7c436110-ab2a-4bbb-a880-fe41995c9f82
 
 DO_AUDIO=1 DO_TB=1 DO_SLEEP=1 DO_WIFI=1 OPT_ISO=0 OPT_FNSWAP=0 OPT_WINKEYS=0 OPT_RESET_KBD=0 FORCE=0 UNINSTALL=0 REPORT=0
 WIFI_MAC="" WIFI_COUNTRY=""
-HAS_T1=0 T1_RECOVERY=0 HAS_BCM43602=0
+HAS_T1=0 T1_RECOVERY=0 HAS_BCM43602=0 HAS_GRUB=0
 
 # ----------------------------------------------------------------- helpers --
 c_ok=$'\e[32m' c_warn=$'\e[33m' c_err=$'\e[31m' c_off=$'\e[0m'
@@ -204,6 +212,7 @@ check_vendored_drivers() {
 install_deps() {
     local pkgs=(dkms base-devel wget patch) k
     (( DO_WIFI )) && pkgs+=(iw python)
+    (( HAS_GRUB )) && pkgs+=(efibootmgr)
     # usbmuxd (iPhone tethering and file access). On T1 models it is safe only
     # together with the iBridge udev rule that install_touchbar writes.
     (( DO_TB || !HAS_T1 )) && pkgs+=(usbmuxd)
@@ -941,6 +950,137 @@ EOF
     command -v nmcli >/dev/null && nmcli general reload conf >/dev/null 2>&1 || true
 }
 
+# -------------------------------------------------------------------- grub --
+# A "macOS" entry in the GRUB menu. GRUB cannot read APFS, so it asks the
+# firmware to start macOS once (UEFI BootNext) and reboots. The slot number
+# differs per machine and the firmware keeps stale slots, so it is looked up.
+# GRUB 2.16's own generator (31_efi_bootnext) stays off: it lists stale slots,
+# GRUB itself and raw device paths as menu entries.
+grub_cfg_path() {
+    local d
+    for d in /boot/grub /efi/grub /boot/efi/grub; do
+        [[ -f $d/grub.cfg ]] && { echo "$d/grub.cfg"; return 0; }
+    done
+    return 1
+}
+
+efi_var() { # efi_var <name-guid>: a variable's text, without its attribute bytes
+    { tail -c +5 "$EFIVARS/$1" | tr -d '\0'; } 2>/dev/null || true
+}
+
+# GRUB can stay installed after a switch to another boot loader. LoaderInfo is
+# set by the loader running now, if it supports that; otherwise check the
+# firmware entry it started from.
+grub_in_use() {
+    local LC_ALL=C loader out current # ${x,,} turns I into a dotless i in Turkish
+    command -v grub-mkconfig >/dev/null && [[ -f $F_GRUB_DEFAULT ]] && grub_cfg_path >/dev/null || return 1
+    loader="$(efi_var "$V_LOADER_INFO")"
+    [[ $loader == GRUB* ]] && return 0
+    [[ -z $loader ]] || return 1
+    command -v efibootmgr >/dev/null || return 0
+    out="$(efibootmgr -v 2>/dev/null)" || return 0
+    current="$(sed -n 's/^BootCurrent: //p' <<< "$out")"
+    [[ -n $current ]] || return 0
+    current="$(sed -n "s/^Boot$current\*\{0,1\} //p" <<< "$out")"
+    current=${current,,}
+    [[ $current != *refind* && $current != *limine* && $current != *systemd* ]]
+}
+
+# The firmware slot that starts macOS: active, on a partition that still exists,
+# loading Apple's boot.efi. First choice is the one macOS itself last set as the
+# startup disk, then a named slot, then any; BootOrder first within each.
+macos_boot_entry() {
+    local LC_ALL=C out blessed line rest n named="" any="" order=()
+    local re_entry='^Boot([0-9A-Fa-f]{4})\* (.*)$' re_part='HD\([0-9]+,GPT,([0-9A-Fa-f-]{36}),'
+    local -A paths=() labels=()
+    out="$(efibootmgr -v 2>/dev/null)" || return 1
+    blessed="$(efi_var "$V_APPLE_BOOT_DEVICE" | sed -n 's|.*<key>Path</key><string>\([^<]*\)</string>.*|\1|p')"
+    IFS=', ' read -r -a order <<< "$(sed -n 's/^BootOrder: //p' <<< "$out")"
+    while IFS= read -r line; do
+        [[ $line =~ $re_entry ]] || continue
+        n=${BASH_REMATCH[1]} rest=${BASH_REMATCH[2]} # "label<tab>device path"
+        [[ ${n^^} != FFFF && ${rest,,} == *'\system\library\coreservices\boot.efi'* ]] || continue
+        [[ $rest =~ $re_part && -e /dev/disk/by-partuuid/${BASH_REMATCH[1],,} ]] || continue
+        paths[$n]=${rest#*$'\t'}
+        labels[$n]=${rest%%$'\t'*}
+        order+=("$n")
+    done <<< "$out"
+    for n in "${order[@]}"; do
+        [[ -n ${paths[$n]:-} ]] || continue
+        [[ -n $blessed && ${paths[$n],,} == *"${blessed,,}"* ]] && { echo "$n"; return 0; }
+        [[ -z $named && -n ${labels[$n]} ]] && named=$n
+        [[ -z $any ]] && any=$n
+    done
+    [[ -n ${named:-$any} ]] && echo "${named:-$any}"
+}
+
+remove_macos_entry() { # remove_macos_entry <custom.cfg>
+    [[ -f $1 ]] || return 0
+    sed -i "/^$GRUB_BEGIN\$/,/^$GRUB_END\$/d" "$1"
+    [[ -s $1 ]] || rm -f "$1"
+}
+
+install_grub() {
+    log "GRUB: macOS menu entry"
+    local cfg custom entry="" written=0
+    cfg="$(grub_cfg_path)"
+    custom="$(dirname "$cfg")/custom.cfg"
+
+    # Also clears older or repeated lines; the last assignment would win anyway.
+    sed -i -e '/^[[:space:]]*GRUB_DISABLE_BOOTNEXT=/d' -e '$a\' "$F_GRUB_DEFAULT"
+    echo "GRUB_DISABLE_BOOTNEXT=true $MARKER" >> "$F_GRUB_DEFAULT"
+
+    # Removed first so a slot that is gone cannot stay in the menu.
+    remove_macos_entry "$custom"
+    if [[ ! -d $EFIVARS ]]; then
+        log "Not started through UEFI; no macOS entry."
+    elif ! grep -qs '^bootnext:' "$(dirname "$cfg")/x86_64-efi/command.lst"; then
+        if grep -qs '^bootnext:' /usr/lib/grub/x86_64-efi/command.lst; then
+            warn "The installed GRUB is older than the package, so no macOS entry was added. Run grub-install, then this script again."
+        else
+            warn "This GRUB has no bootnext command (it needs 2.16), so no macOS entry was added."
+        fi
+    elif ! entry="$(macos_boot_entry)"; then
+        log "No firmware entry for macOS found; no macOS entry."
+    else
+        [[ ! -f $custom ]] || sed -i '$a\' "$custom"
+        cat >> "$custom" <<EOF
+$GRUB_BEGIN
+if [ "\$grub_platform" = "efi" ]; then
+  menuentry 'macOS' --class macosx --class os \$menuentry_id_option 'efi-bootnext-$entry' {
+    if bootnext $entry; then
+      reboot
+    fi
+  }
+fi
+$GRUB_END
+EOF
+        chmod 644 "$custom"
+        written=1
+        log "Added macOS to $custom (firmware entry Boot$entry)"
+    fi
+
+    log "Regenerating $cfg"
+    if ! grub-mkconfig -o "$cfg"; then
+        warn "grub-mkconfig failed; the old $cfg is still in place."
+    elif (( written )) && ! grep -qs 'custom\.cfg' "$cfg"; then
+        warn "$cfg does not load custom.cfg, so macOS will not show up. Make /etc/grub.d/41_custom executable and run this script again."
+    fi
+}
+
+uninstall_grub() {
+    local cfg
+    cfg="$(grub_cfg_path)" || return 0
+    remove_macos_entry "$(dirname "$cfg")/custom.cfg"
+    if grep -qs "^GRUB_DISABLE_BOOTNEXT=true $MARKER\$" "$F_GRUB_DEFAULT"; then
+        sed -i "/^GRUB_DISABLE_BOOTNEXT=true $MARKER\$/d" "$F_GRUB_DEFAULT"
+        if grub_in_use; then
+            log "Regenerating $cfg"
+            grub-mkconfig -o "$cfg" || warn "grub-mkconfig failed; run it yourself."
+        fi
+    fi
+}
+
 # ------------------------------------------------------------------ report --
 # Hardware and driver state for bug reports, on any model. Read-only; root
 # adds the kernel log. MAC addresses (except the vendor part), USB serial
@@ -1093,6 +1233,7 @@ uninstall() {
     # versions of this script left in /usr/local/src/mbp132-setup.
     rm -rf "$SRC_DIR"
     rebuild_initramfs
+    uninstall_grub
     if user_has_our_xkb_options; then
         warn "Your KDE keyboard options are still set. Clear them in System Settings > Keyboard > Key Bindings."
     fi
@@ -1146,6 +1287,11 @@ if (( DO_WIFI && !HAS_BCM43602 )); then
     log "No BCM43602 Wi-Fi found; skipping the Wi-Fi settings (other chips need none)."
     DO_WIFI=0
 fi
+if grub_in_use; then
+    HAS_GRUB=1
+else
+    log "GRUB is not the boot loader here; skipping the boot menu entry."
+fi
 
 install_deps
 (( DO_AUDIO )) && install_audio
@@ -1156,6 +1302,7 @@ install_windows_keys
 (( DO_SLEEP )) && install_sleep
 (( DO_WIFI ))  && install_wifi
 rebuild_initramfs
+(( HAS_GRUB )) && install_grub
 
 echo
 log "All done. Reboot to apply."
@@ -1166,6 +1313,7 @@ After rebooting:
   - Suspend: close the lid; press a key or the power button to wake (opening the lid does not).
   - AltGr (with --windows-keys): right Command or right Option, e.g. AltGr+Q = @ on Turkish Q.
   - After each kernel update, check that the drivers rebuilt:  dkms status
+  - macOS gone from the GRUB menu, or it boots Linux again (after an NVRAM reset or a macOS reinstall)? Run this script again.
 Tips:
   - Double or missed keystrokes: KDE System Settings > Accessibility >
     Keyboard Filters > Bounce keys (~40 ms).
