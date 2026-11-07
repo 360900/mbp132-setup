@@ -84,6 +84,10 @@ jobs:
           cp -a drivers/apple-ibridge "/usr/src/appleibridge-${ver}"
           dkms add -m appleibridge -v "${ver}"
           echo "ver=${ver}" >> "$GITHUB_ENV"
+          sver="$(sed -n 's/^PACKAGE_VERSION="\(.*\)"$/\1/p' drivers/apple-tb-sxfp/dkms.conf)"
+          cp -a drivers/apple-tb-sxfp "/usr/src/apple-tb-sxfp-${sver}"
+          dkms add -m apple-tb-sxfp -v "${sver}"
+          echo "sver=${sver}" >> "$GITHUB_ENV"
       - name: Build against every installed kernel
         shell: bash
         run: |
@@ -95,6 +99,7 @@ jobs:
             case "$k" in extramodules*) continue ;; esac
             echo "::group::dkms build -k ${k}"
             dkms build -m appleibridge -v "${ver}" -k "${k}"
+            dkms build -m apple-tb-sxfp -v "${sver}" -k "${k}"
             echo "::endgroup::"
             built=$((built + 1))
           done

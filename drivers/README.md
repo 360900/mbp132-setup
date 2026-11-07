@@ -45,6 +45,18 @@ in place.
     are added to `struct cs8409_spec` in `patch_cs8409.h.diff`. Applied from
     `patches/0003-snd_hda_macbookpro-set-up-codec-and-amps-again-after-sleep.patch`.
 
+## apple-tb-sxfp (USB-C across sleep)
+
+- Written for this repository. GPL-2.0.
+- Based on `tb_ar_shim` by Andrew Clunis
+  (https://github.com/orospakr/linux-apple-alpine-ridge-suspend, GPL-2.0,
+  commit `155ffe3`): the `dev_pm_domain` approach and the config space save and
+  restore.
+- Calls `SXFP(0)` at the point used by the unmerged patch "thunderbolt: Call
+  SXFP() on Apple systems with Alpine Ridge when suspending" (Francisco Beltrán
+  Millalén, v3, 2026-10-21). Remove the driver once a kernel has that patch.
+- Installed only on the models in `SXFP_MODELS` in `mbp132-setup-cli.sh`.
+
 ## Updating a driver
 
 1. Pull the newer upstream code with
@@ -54,7 +66,7 @@ in place.
    the `struct tb_touch` placement, the platform driver, `.resume` and
    `PACKAGE_VERSION`; for
    `snd_hda_macbookpro`: the resume setup in `cirrus_apple.h`).
-3. If `drivers/apple-ibridge` changed, bump `PACKAGE_VERSION` in its
-   `dkms.conf` again.
+3. If `drivers/apple-ibridge` or `drivers/apple-tb-sxfp` changed, bump
+   `PACKAGE_VERSION` in its `dkms.conf` again.
 4. Add a CHANGELOG entry.
 5. Run `TESTING.md` on hardware before merging.
