@@ -142,9 +142,22 @@ rebuild_initramfs() {
     if command -v mkinitcpio >/dev/null; then
         log "Rebuilding initramfs (mkinitcpio -P)"
         mkinitcpio -P
+    elif command -v dracut-rebuild >/dev/null; then
+        # EndeavourOS (eos-dracut or kernel-install-for-dracut): writes the
+        # images where its boot setup expects them.
+        log "Rebuilding initramfs (dracut-rebuild)"
+        if ! dracut-rebuild && command -v reinstall-kernels >/dev/null; then
+            # kernel-install-for-dracut's dracut-rebuild only updates kernels
+            # that are already on the ESP; reinstall-kernels installs them.
+            reinstall-kernels
+        fi
     elif command -v dracut >/dev/null; then
+        # Arch's naming; "dracut --regenerate-all" uses /boot/initramfs-VERSION.img.
         log "Rebuilding initramfs (dracut)"
-        dracut --regenerate-all -f
+        local k
+        for k in $(installed_kernels); do
+            dracut -f "/boot/initramfs-$(cat "/usr/lib/modules/$k/pkgbase").img" "$k"
+        done
     else
         warn "No mkinitcpio or dracut found; rebuild your initramfs manually."
     fi
