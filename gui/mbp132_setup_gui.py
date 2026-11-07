@@ -692,7 +692,7 @@ class Installer(Adw.ApplicationWindow):
         items = [
             ("audio", "audio-speakers-symbolic", "Audio", "Speakers and microphone driver, even volume steps", True),
             ("touchbar", "input-keyboard-symbolic", "Touch Bar", "Touch Bar and ambient light sensor driver", self.has_t1),
-            ("sleep", "weather-clear-night-symbolic", "Sleep", "Reliable suspend. Press a key or the power button to wake", True),
+            ("sleep", "weather-clear-night-symbolic", "Sleep", "Reliable suspend, USB-C devices stay connected. Press a key or the power button to wake", True),
             ("wifi", "network-wireless-symbolic", "Wi-Fi",
              "Calibration, 5 GHz, and recovery after sleep" if self.uses_country else "Power saving off and a stable address",
              self.has_wifi),
@@ -874,6 +874,7 @@ class Installer(Adw.ApplicationWindow):
                   ("Touch Bar:", 0.45, "Building the Touch Bar driver"),
                   ("Keyboard:", 0.6, "Setting up the keyboard"),
                   ("Sleep:", 0.66, "Setting up sleep"),
+                  ("USB-C across sleep:", 0.69, "Building the USB-C sleep driver"),
                   ("Wi-Fi:", 0.72, "Setting up Wi-Fi"),
                   ("Rebuilding initramfs", 0.78, "Rebuilding the boot image"),
                   ("GRUB:", 0.95, "Updating the boot menu"),
