@@ -1,5 +1,7 @@
 # mbp132-setup
 
+![mbp132-setup installer](docs/img/mbp132-setup-gui.png)
+
 One installer to make Linux usable on the **MacBook Pro 13" 2016 with Touch Bar (MacBookPro13,2)** on Arch-based distributions.
 
 > [!CAUTION]
