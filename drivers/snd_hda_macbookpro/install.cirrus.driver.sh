@@ -185,6 +185,22 @@ if [ $isubuntu -ge 1 ]; then
 else
 	# here we assume the distribution kernel source is essentially the mainline kernel source
 
+	# mbp132-setup: pacman runs hooks (and so DKMS builds) without network on
+	# some distributions. Its own pacman hook caches the sound/hda source of
+	# every installed kernel here first; download only if it is missing.
+	source_cache=/var/cache/mbp132-setup/kernel-src
+	source_tarball=""
+	for v in $kernel_version $major_version.$minor_version; do
+		if [[ -f $source_cache/linux-$v-sound-hda.tar.xz ]]; then
+			kernel_version=$v
+			source_tarball=$source_cache/linux-$v-sound-hda.tar.xz
+			echo "Using cached kernel source $source_tarball"
+			break
+		fi
+	done
+
+	if [[ -z $source_tarball ]]; then
+
 	set +e
 
 	# attempt to download linux-x.x.x.tar.xz kernel
@@ -200,12 +216,16 @@ else
    		kernel_version=$major_version.$minor_version
    		wget -c https://cdn.kernel.org/pub/linux/kernel/v$major_version.x/linux-$kernel_version.tar.xz -P $build_dir
 
-		[[ $? -ne 0 ]] && echo "kernel could not be downloaded...exiting" && exit
+		[[ $? -ne 0 ]] && echo "kernel could not be downloaded...exiting" && exit 1
 	fi
 
 	set -e
 
-	tar --strip-components=2 -xvf $build_dir/linux-$kernel_version.tar.xz --directory=build/ linux-$kernel_version/sound/hda
+	source_tarball=$build_dir/linux-$kernel_version.tar.xz
+
+	fi
+
+	tar --strip-components=2 -xvf $source_tarball --directory=build/ linux-$kernel_version/sound/hda
 
 fi
 

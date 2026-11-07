@@ -44,6 +44,12 @@ in place.
     silent after suspend until reboot. Two fields (`pm_nb`, `system_slept`)
     are added to `struct cs8409_spec` in `patch_cs8409.h.diff`. Applied from
     `patches/0003-snd_hda_macbookpro-set-up-codec-and-amps-again-after-sleep.patch`.
+  - `install.cirrus.driver.sh` takes the kernel's `sound/hda` source from
+    `/var/cache/mbp132-setup/kernel-src/` when the setup script's pacman hook
+    has cached it there, and downloads it only otherwise. pacman can run the
+    DKMS hook without network. A failed download now exits 1 (upstream exited
+    0, and the build failed later with a misleading error). Applied from
+    `patches/0007-snd_hda_macbookpro-build-from-the-cached-kernel-source.patch`.
 
 ## apple-tb-sxfp (USB-C across sleep)
 
@@ -65,7 +71,8 @@ in place.
 2. Re-check that our local changes are still applied (for `apple-ibridge`:
    the `struct tb_touch` placement, the platform driver, `.resume` and
    `PACKAGE_VERSION`; for
-   `snd_hda_macbookpro`: the resume setup in `cirrus_apple.h`).
+   `snd_hda_macbookpro`: the resume setup in `cirrus_apple.h` and the source
+   cache in `install.cirrus.driver.sh`).
 3. If `drivers/apple-ibridge` or `drivers/apple-tb-sxfp` changed, bump
    `PACKAGE_VERSION` in its `dkms.conf` again.
 4. Add a CHANGELOG entry.
