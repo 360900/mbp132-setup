@@ -40,6 +40,7 @@
 #   --no-touchbar    skip the Touch Bar driver
 #   --no-sleep       skip the suspend fixes
 #   --no-wifi        skip the Wi-Fi settings
+#   --no-grub        skip the macOS entry in the GRUB menu
 #   --wifi-mac MAC   the Mac's real Wi-Fi MAC address (macOS: ifconfig en0);
 #                    without it a stable made-up address is used
 #   --wifi-country CC[/REV]
@@ -1259,6 +1260,7 @@ while (( $# )); do
         --no-touchbar)  DO_TB=0 ;;
         --no-sleep)     DO_SLEEP=0 ;;
         --no-wifi)      DO_WIFI=0 ;;
+        --no-grub)      DO_GRUB=0 ;;
         --wifi-mac)     [[ $# -ge 2 ]] || die "--wifi-mac needs an address"; WIFI_MAC=$2; shift ;;
         --wifi-mac=*)   WIFI_MAC=${1#*=} ;;
         --wifi-country) [[ $# -ge 2 ]] || die "--wifi-country needs a country code"; WIFI_COUNTRY=$2; shift ;;
