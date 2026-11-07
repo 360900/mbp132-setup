@@ -41,13 +41,18 @@
 #   --no-sleep       skip the suspend fixes
 #   --no-wifi        skip the Wi-Fi settings
 #   --no-grub        skip the macOS entry in the GRUB menu
+#   --no-keyboard    skip the keyboard settings (the three options above and
+#                    --reset-keyboard)
 #   --wifi-mac MAC   the Mac's real Wi-Fi MAC address (macOS: ifconfig en0);
 #                    without it a stable made-up address is used
 #   --wifi-country CC[/REV]
 #                    Wi-Fi country, e.g. TR (default: the system's regulatory
 #                    country); REV picks a firmware table revision
 #   --force          run on a model that is not a 2016-2017 MacBook Pro
-#   --uninstall      remove everything this script installed
+#   --uninstall      remove everything this script installed; with --no-*
+#                    options, only the parts that were not excluded
+#                    (e.g. --uninstall --no-touchbar --no-sleep --no-wifi
+#                    --no-grub --no-keyboard removes just the audio setup)
 #   --report         write a hardware/driver report for bug reports (any
 #                    model, changes nothing; run with sudo for kernel logs)
 #   -h, --help       show this help
@@ -120,7 +125,7 @@ EFIVARS=/sys/firmware/efi/efivars
 V_LOADER_INFO=LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
 V_APPLE_BOOT_DEVICE=efi-boot-device-7c436110-ab2a-4bbb-a880-fe41995c9f82
 
-DO_AUDIO=1 DO_TB=1 DO_SLEEP=1 DO_WIFI=1 DO_GRUB=1 OPT_ISO=0 OPT_FNSWAP=0 OPT_WINKEYS=0 OPT_RESET_KBD=0 FORCE=0 UNINSTALL=0 REPORT=0
+DO_AUDIO=1 DO_TB=1 DO_SLEEP=1 DO_WIFI=1 DO_GRUB=1 DO_KBD=1 OPT_ISO=0 OPT_FNSWAP=0 OPT_WINKEYS=0 OPT_RESET_KBD=0 FORCE=0 UNINSTALL=0 REPORT=0
 WIFI_MAC="" WIFI_COUNTRY=""
 HAS_T1=0 T1_RECOVERY=0 HAS_BCM43602=0
 
@@ -1237,40 +1242,12 @@ report() {
 }
 
 # --------------------------------------------------------------- uninstall --
-uninstall() {
-    log "Removing everything installed by this script"
-    rm -f "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV" "$F_KBD_MODPROBE" "$F_UDEV" "$F_HOOK" \
-          "$F_SLEEPCONF" "$F_SLEEP_MODE" "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"
-    remove_wifi_regdom
+# Each part removes what its install step wrote. --no-* options keep a part.
+uninstall_audio() {
+    log "Removing the audio driver and volume settings"
     systemctl disable mbp132-volume.service >/dev/null 2>&1 || true
     rm -f "$F_WP_VOLUME" "$F_VOLUME_HELPER" "$F_VOLUME_SERVICE" "$F_VOLUME_UDEV" "$VOLUME_PROFILE_SET" \
           /var/lib/alsa/card*.conf.d/"$ALSA_VOLUME_NAME"
-    systemctl daemon-reload || true
-    udevadm control --reload || true
-    local nv
-    nv="$(wifi_nvram_file)"
-    grep -qsF "$MARKER" "$nv" && rm -f "$nv" && log "Removed $nv"
-    [[ -d "$T1_BACKUP" ]] && log "Keeping the T1 firmware backup in $T1_BACKUP"
-    if [[ -d "$WIFI_BACKUP" ]]; then
-        local f
-        for f in "$WIFI_BACKUP"/*; do
-            [[ -e "$f" ]] || continue
-            mv -f "$f" "$FW_BRCM_DIR/" && log "Restored $FW_BRCM_DIR/$(basename "$f")"
-        done
-        rmdir "$WIFI_BACKUP" "$(dirname "$WIFI_BACKUP")" 2>/dev/null || true
-    fi
-    if [[ -f "$F_KXKB_DEFAULT" ]] && grep -qF "$MARKER" "$F_KXKB_DEFAULT"; then
-        rm -f "$F_KXKB_DEFAULT"
-    fi
-    # Remove every DKMS version of the Touch Bar driver and its /usr/src
-    # copies (older script versions left version 0.1 around).
-    local v
-    while IFS= read -r v; do
-        [[ -n "$v" ]] || continue
-        dkms remove -m "$TB_NAME" -v "$v" --all || true
-    done < <(tb_dkms_versions)
-    rm -rf "/usr/src/${TB_NAME}-"*
-    remove_sxfp
     # davidjo's remove step runs a plain "dkms remove", which only covers the
     # running kernel; remove the audio driver from every kernel first.
     # (No "dkms status | grep -q" pipes in this script: with pipefail, grep -q
@@ -1281,18 +1258,79 @@ uninstall() {
     if [[ -x "$AUDIO_SYS_DIR/install.cirrus.driver.sh" ]]; then
         (cd "$AUDIO_SYS_DIR" && ./install.cirrus.driver.sh -r) || true
     fi
-    # Also removes the touchbar/ clone and old audio copies that older
-    # versions of this script left in /usr/local/src/mbp132-setup.
-    rm -rf "$SRC_DIR"
-    rebuild_initramfs
-    uninstall_grub
-    if user_has_our_xkb_options; then
-        warn "Your KDE keyboard options are still set. Clear them in System Settings > Keyboard > Key Bindings."
-    fi
+    rm -rf "$AUDIO_SYS_DIR" "$AUDIO_REV"
+}
+
+uninstall_touchbar() {
+    log "Removing the Touch Bar driver"
+    rm -f "$F_TB_MODPROBE" "$F_TB_LOAD" "$F_IBRIDGE_UDEV"
+    # Remove every DKMS version of the Touch Bar driver and its /usr/src
+    # copies (older script versions left version 0.1 around).
+    local v
+    while IFS= read -r v; do
+        [[ -n "$v" ]] || continue
+        dkms remove -m "$TB_NAME" -v "$v" --all || true
+    done < <(tb_dkms_versions)
+    rm -rf "/usr/src/${TB_NAME}-"*
     if has_usb 05ac 8600 && pacman -Q usbmuxd >/dev/null 2>&1; then
         warn "usbmuxd is still installed. Without the removed udev rule it can turn off the Touch Bar, camera and light sensor."
         warn "If nothing else needs it: sudo pacman -Rs usbmuxd"
     fi
+}
+
+uninstall_sleep() {
+    log "Removing the suspend fixes"
+    rm -f "$F_UDEV" "$F_HOOK" "$F_SLEEPCONF" "$F_SLEEP_MODE"
+    remove_sxfp
+}
+
+uninstall_wifi() {
+    log "Removing the Wi-Fi settings"
+    rm -f "$F_WIFI_RELOAD" "$F_WIFI_FEM" "$F_WIFI_DISPATCH" "$F_WIFI_NMCONF"
+    remove_wifi_regdom
+    local nv
+    nv="$(wifi_nvram_file)"
+    grep -qsF "$MARKER" "$nv" && rm -f "$nv" && log "Removed $nv"
+    if [[ -d "$WIFI_BACKUP" ]]; then
+        local f
+        for f in "$WIFI_BACKUP"/*; do
+            [[ -e "$f" ]] || continue
+            mv -f "$f" "$FW_BRCM_DIR/" && log "Restored $FW_BRCM_DIR/$(basename "$f")"
+        done
+        rmdir "$WIFI_BACKUP" "$(dirname "$WIFI_BACKUP")" 2>/dev/null || true
+    fi
+    command -v nmcli >/dev/null && nmcli general reload conf >/dev/null 2>&1 || true
+}
+
+uninstall_keyboard() {
+    log "Removing the keyboard settings"
+    rm -f "$F_KBD_MODPROBE"
+    if [[ -f "$F_KXKB_DEFAULT" ]] && grep -qF "$MARKER" "$F_KXKB_DEFAULT"; then
+        rm -f "$F_KXKB_DEFAULT"
+    fi
+    if user_has_our_xkb_options; then
+        warn "Your KDE keyboard options are still set. Clear them in System Settings > Keyboard > Key Bindings."
+    fi
+}
+
+uninstall() {
+    if (( DO_AUDIO && DO_TB && DO_SLEEP && DO_WIFI && DO_GRUB && DO_KBD )); then
+        log "Removing everything installed by this script"
+    fi
+    (( DO_AUDIO )) && uninstall_audio
+    (( DO_TB ))    && uninstall_touchbar
+    (( DO_SLEEP )) && uninstall_sleep
+    (( DO_WIFI ))  && uninstall_wifi
+    (( DO_KBD ))   && uninstall_keyboard
+    systemctl daemon-reload || true
+    udevadm control --reload || true
+    [[ -d "$T1_BACKUP" ]] && log "Keeping the T1 firmware backup in $T1_BACKUP"
+    # Also removes the touchbar/ clone and old audio copies that older
+    # versions of this script left in /usr/local/src/mbp132-setup.
+    (( DO_AUDIO && DO_TB )) && rm -rf "$SRC_DIR"
+    # The drivers and module options are in the initramfs.
+    (( DO_AUDIO || DO_TB || DO_SLEEP || DO_KBD )) && rebuild_initramfs
+    (( DO_GRUB )) && uninstall_grub
     log "Done. Reboot to finish."
 }
 
@@ -1308,6 +1346,7 @@ while (( $# )); do
         --no-sleep)     DO_SLEEP=0 ;;
         --no-wifi)      DO_WIFI=0 ;;
         --no-grub)      DO_GRUB=0 ;;
+        --no-keyboard)  DO_KBD=0 ;;
         --wifi-mac)     [[ $# -ge 2 ]] || die "--wifi-mac needs an address"; WIFI_MAC=$2; shift ;;
         --wifi-mac=*)   WIFI_MAC=${1#*=} ;;
         --wifi-country) [[ $# -ge 2 ]] || die "--wifi-country needs a country code"; WIFI_COUNTRY=$2; shift ;;
@@ -1348,9 +1387,11 @@ fi
 install_deps
 (( DO_AUDIO )) && install_audio
 (( DO_TB ))    && install_touchbar
-reset_keyboard
-install_keyboard
-install_windows_keys
+if (( DO_KBD )); then
+    reset_keyboard
+    install_keyboard
+    install_windows_keys
+fi
 (( DO_SLEEP )) && install_sleep
 (( DO_WIFI ))  && install_wifi
 rebuild_initramfs

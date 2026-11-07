@@ -42,7 +42,7 @@ Run `./mbp132-setup.sh` as your normal user, as shown above, then reboot. It nee
 
 Both drivers are vendored in this repository (`drivers/`); the script installs them from the local tree and clones nothing from GitHub. See [Vendored drivers](#vendored-drivers).
 
-Command-line options: `--iso`, `--fn-ctrl-swap`, `--windows-keys`, `--reset-keyboard`, `--wifi-mac MAC`, `--wifi-country CC[/REV]`, `--no-audio`, `--no-touchbar`, `--no-sleep`, `--no-wifi`, `--no-grub`, `--force`, `--uninstall`, `--report`. Run `--help` for details.
+Command-line options: `--iso`, `--fn-ctrl-swap`, `--windows-keys`, `--reset-keyboard`, `--wifi-mac MAC`, `--wifi-country CC[/REV]`, `--no-audio`, `--no-touchbar`, `--no-sleep`, `--no-wifi`, `--no-grub`, `--no-keyboard`, `--force`, `--uninstall`, `--report`. With `--no-*` options, `--uninstall` removes only the parts not excluded. Run `--help` for details.
 
 Other 2016-2017 MacBook Pros (13,1, 13,3, 14,1, 14,2, 14,3) are supported but untested. The Touch Bar and Wi-Fi parts are installed only where that hardware exists. To help, run `sudo ./mbp132-setup-cli.sh --report` (works on any model, changes nothing) and open a [test report](https://github.com/360900/mbp132-setup/issues/new?template=test-report.yml).
 

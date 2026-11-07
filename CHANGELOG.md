@@ -5,6 +5,8 @@
 Installed from this tree on a MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-05), over an earlier install, not on a clean system. The full [TESTING.md](TESTING.md) list has not been run.
 
 ### Added
+- `--uninstall` honors the `--no-*` options and removes only the parts that were not excluded, e.g. `--uninstall --no-touchbar --no-sleep --no-wifi --no-grub --no-keyboard` removes just the audio setup. Plain `--uninstall` still removes everything.
+- `--no-keyboard`: skip the keyboard settings, when installing or uninstalling.
 - `apple-tb-sxfp` driver (MacBookPro13,2): USB-C devices stay connected across sleep.
 - Graphical installer: `./mbp132-setup.sh` (GTK4, libadwaita) asks about the keyboard layout, modifier keys, Wi-Fi country and components, then runs the command-line script through pkexec. The script is now `mbp132-setup-cli.sh`.
 - Wi-Fi calibration file for the MacBookPro13,2's BCM43602 (`firmware/brcmfmac43602-pcie.txt.in`, from kernel bugzilla attachment 290569 + comment 97), installed with the user's MAC (`--wifi-mac`, otherwise one derived from `/etc/machine-id`) and country (`--wifi-country CC[/REV]`, otherwise the system's regulatory country; `TR` uses firmware revision 1). Verified on the MacBookPro13,2 with linux-cachyos 7.3.1 (2026-11-01): 2.4 GHz and 5 GHz on channel 40 and on the radar channel 56, 80 MHz 802.11ac, link rate up to 702 Mbit/s, ~40 MB/s download. With the default `TR/0`, channels 52-64 were passive and every join there failed at once, and 100-140 were off.
